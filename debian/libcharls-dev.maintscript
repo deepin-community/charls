@@ -1,0 +1,2 @@
+# See #971425, #971431 & #971435:
+dir_to_symlink /usr/include/CharLS /usr/include/charls 2.1.0+dfsg-6~ libcharls-dev

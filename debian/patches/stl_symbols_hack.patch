@@ -1,0 +1,44 @@
+Description: Rework the symbol file to hide stl exported symbols
+ Also add missing header
+Author: Mathieu Malaterre <malat@debian.org>
+Forwarded: no
+
+Index: charls/exports.version
+===================================================================
+--- /dev/null
++++ charls/exports.version
+@@ -0,0 +1,21 @@
++{
++global:
++    JpegLsDecode;
++    JpegLsDecodeRect;
++    JpegLsEncode;
++    JpegLsReadHeader;
++    charls_get*;
++    charls_jpegls_encoder*;
++    charls_jpegls_decoder*;
++    extern "C++" {
++      JpegLsDecode;
++      JpegLsDecodeRect;
++      JpegLsEncode;
++      JpegLsReadHeader;
++      charls_get*;
++      charls_jpegls_encoder*;
++      charls_jpegls_decoder*;
++    };
++local:
++    *;
++};
+Index: charls/src/CMakeLists.txt
+===================================================================
+--- charls.orig/src/CMakeLists.txt
++++ charls/src/CMakeLists.txt
+@@ -54,6 +54,8 @@ endforeach()
+ set_target_properties(charls PROPERTIES CXX_VISIBILITY_PRESET hidden)
+ set_property(TARGET charls PROPERTY PUBLIC_HEADER ${HEADERS})
+ 
++set_property(TARGET charls PROPERTY LINK_FLAGS "-Wl,--version-script=../exports.version")
++
+ target_sources(charls
+   PUBLIC
+     ${CHARLS_PUBLIC_HEADERS}

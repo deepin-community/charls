@@ -1,0 +1,18 @@
+Description: Debian buildd wants to use the default c++ standard always (not hardcoded)
+Author: Mathieu Malaterre <malat@debian.org>
+Forwarded: no
+Last-Update: 2019-01-03
+
+Index: charls/CMakeLists.txt
+===================================================================
+--- charls.orig/CMakeLists.txt
++++ charls/CMakeLists.txt
+@@ -37,7 +37,7 @@ option(CHARLS_PEDANTIC_WARNINGS "Enable
+ option(CHARLS_THREAT_WARNINGS_AS_ERRORS "Treat Warnings as Errors." OFF)
+ 
+ # CharLS requires C++14 or newer.
+-set(CMAKE_CXX_STANDARD 14)
++#set(CMAKE_CXX_STANDARD 14)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ set(CMAKE_CXX_EXTENSIONS OFF)
+ 
