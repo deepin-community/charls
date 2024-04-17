@@ -3,11 +3,12 @@
 
 #pragma once
 
-#include <charls/jpegls_error.h>
-
 #include "byte_span.h"
+#include "charls/jpegls_error.h"
 #include "jpeg_marker_code.h"
 #include "util.h"
+
+#include <limits>
 
 namespace charls {
 
@@ -33,7 +34,7 @@ public:
     /// <param name="header">Header info to write into the SPIFF segment.</param>
     void write_spiff_header_segment(const spiff_header& header);
 
-    void write_spiff_directory_entry(uint32_t entry_tag, IN_READS_BYTES_(entry_data_size_bytes) const void* entry_data,
+    void write_spiff_directory_entry(uint32_t entry_tag, CHARLS_IN_READS_BYTES(entry_data_size_bytes) const void* entry_data,
                                      size_t entry_data_size_bytes);
 
     /// <summary>
@@ -49,19 +50,36 @@ public:
     void write_color_transform_segment(color_transformation transformation);
 
     /// <summary>
+    /// Writes a comment (COM) segment.
+    /// </summary>
+    /// <param name="comment">The bytes of the comment.</param>
+    void write_comment_segment(const_byte_span comment);
+
+    /// <summary>
+    /// Writes an application data (APPn) segment.
+    /// </summary>
+    /// <param name="application_data_id">The ID of the application data segment.</param>
+    /// <param name="application_data">The bytes of the application data.</param>
+    void write_application_data_segment(int32_t application_data_id, const_byte_span application_data);
+
+    /// <summary>
     /// Writes a JPEG-LS preset parameters (LSE) segment.
     /// </summary>
     /// <param name="preset_coding_parameters">Parameters to write into the JPEG-LS preset segment.</param>
     void write_jpegls_preset_parameters_segment(const jpegls_pc_parameters& preset_coding_parameters);
 
     /// <summary>
+    /// Writes a JPEG-LS preset parameters (LSE) segment for oversize image dimension.
+    /// </summary>
+    /// <param name="width">Height of the image.</param>
+    /// <param name="height">Width of the image.</param>
+    void write_jpegls_preset_parameters_segment(uint32_t height, uint32_t width);
+
+    /// <summary>
     /// Writes a JPEG-LS Start Of Frame (SOF-55) segment.
     /// </summary>
-    /// <param name="width">The width of the frame.</param>
-    /// <param name="height">The height of the frame.</param>
-    /// <param name="bits_per_sample">The bits per sample.</param>
-    /// <param name="component_count">The component count.</param>
-    void write_start_of_frame_segment(uint32_t width, uint32_t height, int32_t bits_per_sample, int32_t component_count);
+    /// <param name="frame">Properties of the frame.</param>
+    bool write_start_of_frame_segment(const frame_info& frame);
 
     /// <summary>
     /// Writes a JPEG-LS Start Of Scan (SOS) segment.
@@ -73,7 +91,7 @@ public:
     /// <param name="interleave_mode">The interleave mode of the components.</param>
     void write_start_of_scan_segment(int32_t component_count, int32_t near_lossless, interleave_mode interleave_mode);
 
-    void write_end_of_image();
+    void write_end_of_image(bool even_destination_size);
 
     size_t bytes_written() const noexcept
     {
@@ -96,6 +114,12 @@ public:
         destination_ = destination;
     }
 
+    void rewind() noexcept
+    {
+        byte_offset_ = 0;
+        component_id_ = 1;
+    }
+
 private:
     void write_segment_header(jpeg_marker_code marker_code, size_t data_size);
 
@@ -105,6 +129,18 @@ private:
         destination_.data[byte_offset_++] = value;
     }
 
+    void write_uint8(const int32_t value) noexcept
+    {
+        ASSERT(value >= 0 && value <= std::numeric_limits<uint8_t>::max());
+        write_uint8(static_cast<uint8_t>(value));
+    }
+
+    void write_uint8(const size_t value) noexcept
+    {
+        ASSERT(value <= std::numeric_limits<uint8_t>::max());
+        write_uint8(static_cast<uint8_t>(value));
+    }
+
     void write_uint16(const uint16_t value) noexcept
     {
         write_uint<uint16_t>(value);
@@ -112,7 +148,13 @@ private:
 
     void write_uint16(const int32_t value) noexcept
     {
-        ASSERT(value >= 0 && value <= UINT16_MAX);
+        ASSERT(value >= 0 && value <= std::numeric_limits<uint16_t>::max());
+        write_uint16(static_cast<uint16_t>(value));
+    }
+
+    void write_uint16(const uint32_t value) noexcept
+    {
+        ASSERT(value <= std::numeric_limits<uint16_t>::max());
         write_uint16(static_cast<uint16_t>(value));
     }
 
@@ -128,11 +170,20 @@ private:
 
         // Use write_bytes to write to the unaligned byte array.
         // The compiler will perform the correct optimization when the target platform support unaligned writes.
-        const UnsignedIntType big_endian_value{endian_swap(value)};
+#ifdef LITTLE_ENDIAN_ARCHITECTURE
+        const UnsignedIntType big_endian_value{byte_swap(value)};
+#else
+        const UnsignedIntType big_endian_value{value};
+#endif
         write_bytes(&big_endian_value, sizeof big_endian_value);
     }
 
-    void write_bytes(IN_READS_BYTES_(size) const void* data, const size_t size) noexcept
+    void write_bytes(const const_byte_span data) noexcept
+    {
+        write_bytes(data.data(), data.size());
+    }
+
+    void write_bytes(CHARLS_IN_READS_BYTES(size) const void* data, const size_t size) noexcept
     {
         ASSERT(byte_offset_ + size <= destination_.size);
         memcpy(destination_.data + byte_offset_, data, size);
@@ -147,21 +198,11 @@ private:
 
     void write_segment_without_data(const jpeg_marker_code marker_code)
     {
-        if (byte_offset_ + 2 > destination_.size)
+        if (UNLIKELY(byte_offset_ + 2 > destination_.size))
             impl::throw_jpegls_error(jpegls_errc::destination_buffer_too_small);
 
         write_uint8(jpeg_marker_start_byte);
         write_uint8(static_cast<uint8_t>(marker_code));
-    }
-
-    static constexpr uint32_t endian_swap(const uint32_t value) noexcept
-    {
-        return value >> 24 | (value & 0x00FF0000) >> 8 | (value & 0x0000FF00) << 8 | value << 24;
-    }
-
-    static constexpr uint16_t endian_swap(const uint16_t value) noexcept
-    {
-        return static_cast<uint16_t>(value >> 8 | value << 8);
     }
 
     byte_span destination_{};

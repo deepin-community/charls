@@ -2,15 +2,6 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: CharLS
 Upstream-Contact: Jan de Vaan <jan.devaan@versatel.nl>
 Source: https://github.com/team-charls/charls/releases
-Files-Excluded: */test/conformance
-                */test/jlsimage
-                */test/*.raw
-                */test/*.jls
-                */test/*.dcm
-                */test/*.ppm
-                */test/MR2_UNC
-                */src/charls.rc
-                *.vcxproj*
 
 Files: *
 Copyright: © Jan de Vaan 2007-2010, all rights reserved.

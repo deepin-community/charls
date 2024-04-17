@@ -24,11 +24,11 @@ void test_jpegls_read_header(const char* filename, const int width, const int he
 {
     cout << "LegacyAPI JpegLsReadHeader:" << filename << "\n";
 
-    vector<uint8_t> encoded_buffer = read_file(filename);
+    const vector<uint8_t> encoded_buffer{read_file(filename)};
 
     array<char, ErrorMessageSize> error_message{};
     JlsParameters parameters{};
-    const auto error = JpegLsReadHeader(encoded_buffer.data(), encoded_buffer.size(), &parameters, error_message.data());
+    const auto error{JpegLsReadHeader(encoded_buffer.data(), encoded_buffer.size(), &parameters, error_message.data())};
     assert::is_true(error == jpegls_errc::success);
 
     assert::is_true(parameters.width == width || parameters.height == height ||
@@ -54,7 +54,7 @@ void test_jpegls_read_header()
     test_jpegls_read_header("test/conformance/t8nde3.jls", 128, 128, 8, 128, 1, 0);
     test_jpegls_read_header("test/conformance/t16e0.jls", 256, 256, 12, 512, 1, 0);
     test_jpegls_read_header("test/conformance/t16e3.jls", 256, 256, 12, 512, 1, 0);
-    test_jpegls_read_header("test/lena8b.jls", 512, 512, 8, 512, 1, 0);
+    test_jpegls_read_header("test/tulips-gray-8bit-512-512-hp-encoder.jls", 512, 512, 8, 512, 1, 0);
 }
 
 } // namespace

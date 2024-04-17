@@ -43,13 +43,28 @@
 
 #endif
 
-#if defined(__cplusplus) && __cplusplus >= 201703
-#define CHARLS_NO_DISCARD [[nodiscard]]
+
+#ifdef _MSC_VER
+// Visual Studio 2015 supports C++14, but not all constexpr scenarios. VS 2017 has full C++14 support.
+#if _MSC_VER >= 1910
+#define CHARLS_CONSTEXPR constexpr
 #else
-#define CHARLS_NO_DISCARD
+#define CHARLS_CONSTEXPR inline
+#endif
+#else
+#define CHARLS_CONSTEXPR constexpr
 #endif
 
+
 #ifdef __cplusplus
+
+#if __cplusplus >= 201703
+#define CHARLS_NO_DISCARD [[nodiscard]]
+#define CHARLS_CONSTEXPR_INLINE inline
+#else
+#define CHARLS_NO_DISCARD
+#define CHARLS_CONSTEXPR_INLINE
+#endif
 
 #define CHARLS_FINAL final
 #define CHARLS_NOEXCEPT noexcept
@@ -64,6 +79,7 @@
 #endif
 
 #else
+#define CHARLS_NO_DISCARD
 #define CHARLS_FINAL
 #define CHARLS_NOEXCEPT
 #define CHARLS_DEPRECATED

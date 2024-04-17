@@ -1,26 +1,27 @@
 #!/usr/bin/make -f
 #export DH_VERBOSE=1
 
-#export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
-#export DEB_LDFLAGS_MAINT_APPEND = -Wl,--version-script=../exports.version
-export DEB_CFLAGS_MAINT_APPEND = -fvisibility=hidden -fvisibility-inlines-hidden
-export DEB_CXXFLAGS_MAINT_APPEND = -fvisibility=hidden -fvisibility-inlines-hidden
-DEB_HOST_MULTIARCH ?= $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
+include /usr/share/dpkg/default.mk
 
-export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=+lto
+export DPKG_GENSYMBOLS_CHECK_LEVEL = 4
 
-# SAMPLES/TESTS should be OFF by default:
-# https://github.com/team-charls/charls/issues/81#issuecomment-716385532
-CMAKE_EXTRA_FLAGS += -DCMAKE_BUILD_TYPE:STRING=None \
+# SAMPLES should not be installed:
+# https://github.com/team-charls/charls/blob/master/samples/README.md
+CMAKE_EXTRA_FLAGS += \
  -DBUILD_SHARED_LIBS:BOOL=ON \
- -DCHARLS_BUILD_SAMPLES:BOOL=OFF \
- -DCHARLS_BUILD_TESTS:BOOL=OFF \
+ -DCHARLS_BUILD_SAMPLES:BOOL=ON \
+ -DCHARLS_BUILD_TESTS:BOOL=ON \
+ -DCHARLS_PEDANTIC_WARNINGS:BOOL=ON
 
 %:
-	dh $@ --buildsystem=cmake
+	dh $@ --buildsystem=cmake+ninja
 
 override_dh_auto_configure:
 	dh_auto_configure -- $(CMAKE_EXTRA_FLAGS)
+
+override_dh_auto_test-arch:
+	dh_auto_test
 
 pkg_run = libcharls2
 pkg_dev = libcharls-dev
@@ -33,13 +34,3 @@ override_dh_install-arch:
 	dh_install -p$(pkg_dev) usr/lib/$(DEB_HOST_MULTIARCH)/lib*.so
 	dh_install -p$(pkg_dev) usr/lib/$(DEB_HOST_MULTIARCH)/cmake/charls/*.cmake
 	dh_install -p$(pkg_dev) usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig/charls.pc
-	# See #971425, #971431 & #971435:
-	dh_link -p$(pkg_run) usr/lib/$(DEB_HOST_MULTIARCH)/libcharls.so.2 usr/lib/$(DEB_HOST_MULTIARCH)/libCharLS.so.2
-	dh_link -p$(pkg_dev) usr/lib/$(DEB_HOST_MULTIARCH)/libcharls.so usr/lib/$(DEB_HOST_MULTIARCH)/libCharLS.so
-	dh_link -p$(pkg_dev) usr/include/charls usr/include/CharLS
-#	dh_install -a
-#	d-shlibmove --commit \
-#		     --multiarch \
-#		     --devunversioned \
-#		     --movedev debian/tmp/usr/include/* usr/include \
-#		     debian/tmp/usr/lib/*/*.so

@@ -151,11 +151,6 @@ The following features are available in C++20 (usable after 2023), or in dual la
 * \<span>
 * modules
 
-### Supported C# language
-
-CharLS currently targets C# 7.3 on the main branch. This will be done until C# 8.0 becomes available.
-Client code in C# 7.3 calling the CharLS assembly will be supported up to 3 years after the release of C# 8.0.
-
 ### Portable Anymap Format
 
 The de facto standard used by the JPEG standard to deliver test files is the Portable Anymap Format.
@@ -174,3 +169,68 @@ One of the missing features of C++ is a standard Package Manager. The following 
 * Cross-platform unit test library (for example Catch2)
 * Library to read Anymap files (for example Netpbm)
 * Library to parse command line parameters (for example Clara, CLI11)
+
+### Performance
+
+#### Decoding the bitstream
+
+There are 2 main ways to decode the bitstream
+
+* Basic: Read it byte for byte and store the results in a cache variable
+
+* Improved: read when possible a register in 1 step. The problem is that 0xFF can exists in the
+bitstream. If such a 0xFF exists the next bit needs to be ignored. There are a couple of way to do this:
+  * A) Search for the first position with a 0xFF it and remember the position. 0xFFs are rare.
+  * B) Search for the first 0xFF with memchr. memchr can leverage special CPU instructions when possible.
+  * C) Load a register and check if it contains a 0xFF byte.
+
+Measurements conclusion: option B is the fastest on x64. This is the original algorithm. There is not a large difference between the different options.
+Examples of decoding performance on a AMD 5950X x64 CPU:
+
+| Image                       | Basic   | Improved A | Improved B |Improved C |
+| --------------              | ------- | ---------- | ---------- |---------- |
+| 16 bit 512 * 512 (CT image) | 3.09 ms | 3.17 ms    | 3.06 ms    | 3.10 ms   |
+|  8 bit 5412 * 7216          | 517 ms  | 509 ms     | 507 ms     | 512 ms    |
+
+#### Using special "checked" functions for decoding
+
+The input data for decoding is untrusted. Additional checks are included to detect invalid bitstream data.
+Most of these routines are also shared with the encoding process.
+Measurements show that there is no impact by creating special functions that don't these checks.
+In normal cases the checks never fail and the unlikely branch is never taken. This makes is very easy for
+the CPU branch predictor to always the correct outcome based on the branch history.
+
+### Supported C++ Compilers
+
+#### Clang
+
+Recommended warnings:
+
+* -Wall (warning collection switch)
+* -Wextra (warning collection switch)
+* -Wnon-gcc (warning collection switch)
+* -Walloca (not included in Wall or Wextra)
+* -Wcast-qual (not included in Wall or Wextra)
+* -Wformat=2 (not included in Wall or Wextra)
+* -Wformat-security (enabled by -Wformat=2)
+* -Wnull-dereference (enabled by default)
+* -Wstack-protector (enabled by default)
+* -Wvla (not included in Wall or Wextra)
+* -Warray-bounds (enabled by default)
+* -Warray-bounds-pointer-arithmetic (not included in Wall or Wextra)
+* -Wassign-enum (not included in Wall or Wextra)
+* -Wbad-function-cast (not included in Wall or Wextra)
+* -Wconditional-uninitialized (not included in Wall or Wextra)
+* -Wconversion (enabled by Wnon-gcc)
+* -Widiomatic-parentheses (not included in Wall or Wextra)
+* -Wimplicit-fallthrough (not included in Wall or Wextra)
+* -Wloop-analysis (not included in Wall or Wextra)
+* -Wpointer-arith (not included in Wall or Wextra)
+* -Wshift-sign-overflow (not included in Wall or Wextra)
+* -Wshorten-64-to-32 (enabled by Wnon-gcc)
+* -Wswitch-enum (not included in Wall or Wextra)
+* -Wtautological-constant-in-range-compare (not included in Wall or Wextra)
+* -Wunreachable-code-aggressive (not included in Wall or Wextra)
+* -Wthread-safety (not included in Wall or Wextra)
+* -Wthread-safety-beta (not included in Wall or Wextra)
+* -Wcomma (not included in Wall or Wextra)

@@ -5,14 +5,15 @@
 
 #include "coding_parameters.h"
 #include "color_transform.h"
-#include "constants.h"
-#include "context.h"
+#include "context_regular_mode.h"
 #include "context_run_mode.h"
+#include "jpeg_marker_code.h"
 #include "lookup_table.h"
 #include "process_line.h"
 
 #include <array>
 #include <sstream>
+#include <limits>
 
 // This file contains the code for handling a "scan". Usually an image is encoded as a single scan.
 // Note: the functions in this header could be moved into jpegls.cpp as they are only used in that file.
@@ -30,42 +31,14 @@ extern const std::vector<int8_t> quantization_lut_lossless_16;
 
 // Used to determine how large runs should be encoded at a time. Defined by the JPEG-LS standard, A.2.1., Initialization
 // step 3.
-constexpr std::array<int, 32> J{0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2,  2,  3,  3,  3,  3,
-                                4, 4, 5, 5, 6, 6, 7, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+constexpr std::array<int, 32> J{
+    {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 9, 10, 11, 12, 13, 14, 15}};
 
 constexpr int32_t apply_sign(const int32_t i, const int32_t sign) noexcept
 {
     return (sign ^ i) - sign;
 }
 
-
-// Two alternatives for GetPredictedValue() (second is slightly faster due to reduced branching)
-
-#if 0
-
-inline int32_t get_predicted_value(int32_t Ra, int32_t Rb, int32_t Rc)
-{
-    if (Ra < Rb)
-    {
-        if (Rc < Ra)
-            return Rb;
-
-        if (Rc > Rb)
-            return Ra;
-    }
-    else
-    {
-        if (Rc < Rb)
-            return Ra;
-
-        if (Rc > Ra)
-            return Rb;
-    }
-
-    return Ra + Rb - Rc;
-}
-
-#else
 
 inline int32_t get_predicted_value(const int32_t ra, const int32_t rb, const int32_t rc) noexcept
 {
@@ -86,30 +59,31 @@ inline int32_t get_predicted_value(const int32_t ra, const int32_t rb, const int
     return ra + rb - rc;
 }
 
-#endif
 
 /// <summary>
 /// This is the optimized inverse algorithm of ISO/IEC 14495-1, A.5.2, Code Segment A.11 (second else branch)
 /// It will map unsigned values back to signed values.
 /// </summary>
-CONSTEXPR int32_t unmap_error_value(const int32_t mapped_error) noexcept
+CHARLS_CONSTEXPR int32_t unmap_error_value(const int32_t mapped_error) noexcept
 {
     const int32_t sign{static_cast<int32_t>(static_cast<uint32_t>(mapped_error) << (int32_t_bit_count - 1)) >>
                        (int32_t_bit_count - 1)};
     return sign ^ (mapped_error >> 1);
 }
 
+
 /// <summary>
 /// This is the algorithm of ISO/IEC 14495-1, A.5.2, Code Segment A.11 (second else branch)
 /// It will map signed values to unsigned values. It has been optimized to prevent branching.
 /// </summary>
-CONSTEXPR int32_t map_error_value(const int32_t error_value) noexcept
+CHARLS_CONSTEXPR int32_t map_error_value(const int32_t error_value) noexcept
 {
-    ASSERT(error_value <= INT32_MAX / 2);
+    ASSERT(error_value <= std::numeric_limits<int32_t>::max() / 2);
 
     const int32_t mapped_error{(error_value >> (int32_t_bit_count - 2)) ^ (2 * error_value)};
     return mapped_error;
 }
+
 
 constexpr int32_t compute_context_id(const int32_t q1, const int32_t q2, const int32_t q3) noexcept
 {
@@ -131,6 +105,7 @@ public:
     {
         ASSERT((parameters.interleave_mode == interleave_mode::none && this->frame_info().component_count == 1) ||
                parameters.interleave_mode != interleave_mode::none);
+        ASSERT(traits_.is_valid());
     }
 
     // Factory function for ProcessLine objects to copy/transform un encoded pixels to/from our scan line buffers.
@@ -174,14 +149,10 @@ public:
     }
 
 private:
-    void set_presets(const jpegls_pc_parameters& presets) override
+    void set_presets(const jpegls_pc_parameters& presets, const uint32_t restart_interval) override
     {
-        const jpegls_pc_parameters preset_default{compute_default(traits_.maximum_sample_value, traits_.near_lossless)};
-
-        initialize_parameters(presets.threshold1 != 0 ? presets.threshold1 : preset_default.threshold1,
-                              presets.threshold2 != 0 ? presets.threshold2 : preset_default.threshold2,
-                              presets.threshold3 != 0 ? presets.threshold3 : preset_default.threshold3,
-                              presets.reset_value != 0 ? presets.reset_value : preset_default.reset_value);
+        initialize_parameters(presets.threshold1, presets.threshold2, presets.threshold3, presets.reset_value);
+        restart_interval_ = restart_interval;
     }
 
     bool is_interleaved() noexcept
@@ -232,8 +203,8 @@ private:
 
     // C4127 = conditional expression is constant (caused by some template methods that are not fully specialized) [VS2017]
     // C6326 = Potential comparison of a constant with another constant. (false warning, triggered by template construction
-    // in Checked build) C26814 = The const variable 'RANGE' can be computed at compile-time. [incorrect warning, VS 16.3.0
-    // P3]
+    // in Checked build)
+    // C26814 = The const variable 'RANGE' can be computed at compile-time. [incorrect warning, VS 16.3.0 P3]
     MSVC_WARNING_SUPPRESS(4127 6326 26814)
 
     void initialize_quantization_lut()
@@ -331,12 +302,13 @@ private:
         run_index_ = std::max(0, run_index_ - 1);
     }
 
-    FORCE_INLINE sample_type do_regular(const int32_t qs, int32_t, const int32_t predicted, decoder_strategy*)
+    FORCE_INLINE sample_type do_regular(const int32_t qs, int32_t /*x*/, const int32_t predicted,
+                                        decoder_strategy* /*template_selector*/)
     {
-        const int32_t sign = bit_wise_sign(qs);
-        jls_context& context = contexts_[apply_sign(qs, sign)];
-        const int32_t k = context.get_golomb_coding_parameter();
-        const int32_t predicted_value = traits_.correct_prediction(predicted + apply_sign(context.C, sign));
+        const int32_t sign{bit_wise_sign(qs)};
+        context_regular_mode& context{contexts_[apply_sign(qs, sign)]};
+        const int32_t k{context.get_golomb_coding_parameter()};
+        const int32_t predicted_value{traits_.correct_prediction(predicted + apply_sign(context.c(), sign))};
 
         int32_t error_value;
         const golomb_code& code = decoding_tables[k].get(Strategy::peek_byte());
@@ -349,36 +321,37 @@ private:
         else
         {
             error_value = unmap_error_value(decode_value(k, traits_.limit, traits_.quantized_bits_per_pixel));
-            if (std::abs(error_value) > 65535)
+            if (UNLIKELY(std::abs(error_value) > 65535))
                 impl::throw_jpegls_error(jpegls_errc::invalid_encoded_data);
         }
         if (k == 0)
         {
             error_value = error_value ^ context.get_error_correction(traits_.near_lossless);
         }
-        context.update_variables(error_value, traits_.near_lossless, traits_.reset_threshold);
+        context.update_variables_and_bias(error_value, traits_.near_lossless, traits_.reset_threshold);
         error_value = apply_sign(error_value, sign);
         return traits_.compute_reconstructed_sample(predicted_value, error_value);
     }
 
-    FORCE_INLINE sample_type do_regular(const int32_t qs, const int32_t x, const int32_t predicted, encoder_strategy*)
+    FORCE_INLINE sample_type do_regular(const int32_t qs, const int32_t x, const int32_t predicted,
+                                        encoder_strategy* /*template_selector*/)
     {
         const int32_t sign{bit_wise_sign(qs)};
-        jls_context& context{contexts_[apply_sign(qs, sign)]};
+        context_regular_mode& context{contexts_[apply_sign(qs, sign)]};
         const int32_t k{context.get_golomb_coding_parameter()};
-        const int32_t predicted_value{traits_.correct_prediction(predicted + apply_sign(context.C, sign))};
+        const int32_t predicted_value{traits_.correct_prediction(predicted + apply_sign(context.c(), sign))};
         const int32_t error_value{traits_.compute_error_value(apply_sign(x - predicted_value, sign))};
 
         encode_mapped_value(k, map_error_value(context.get_error_correction(k | traits_.near_lossless) ^ error_value),
                             traits_.limit);
-        context.update_variables(error_value, traits_.near_lossless, traits_.reset_threshold);
+        context.update_variables_and_bias(error_value, traits_.near_lossless, traits_.reset_threshold);
         ASSERT(traits_.is_near(traits_.compute_reconstructed_sample(predicted_value, apply_sign(error_value, sign)), x));
         return static_cast<sample_type>(
             traits_.compute_reconstructed_sample(predicted_value, apply_sign(error_value, sign)));
     }
 
     /// <summary>Encodes/Decodes a scan line of samples</summary>
-    void do_line(sample_type*)
+    FORCE_INLINE void do_line(sample_type* /*template_selector*/)
     {
         int32_t index{};
         int32_t rb{previous_line_[index - 1]};
@@ -410,7 +383,7 @@ private:
     }
 
     /// <summary>Encodes/Decodes a scan line of triplets in ILV_SAMPLE mode</summary>
-    void do_line(triplet<sample_type>*)
+    void do_line(triplet<sample_type>* /*template_selector*/)
     {
         int32_t index{};
         while (static_cast<uint32_t>(index) < width_)
@@ -450,6 +423,8 @@ private:
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Winconsistent-missing-override"
+#pragma clang diagnostic ignored "-Wunknown-warning-option"
+#pragma clang diagnostic ignored "-Wsuggest-override"
 #endif
 
     MSVC_WARNING_SUPPRESS(26433) // C.128: Virtual functions should specify exactly one of virtual, override, or final
@@ -463,22 +438,30 @@ private:
         Strategy::process_line_ = std::move(process_line);
 
         Strategy::initialize(destination);
-        do_scan();
+        encode_lines();
 
         return Strategy::get_length();
     }
 
     // NOLINTNEXTLINE(cppcoreguidelines-explicit-virtual-functions, hicpp-use-override, modernize-use-override, clang-diagnostic-suggest-override)
-    void decode_scan(std::unique_ptr<process_line> process_line, const JlsRect& rect, byte_span& compressed_data)
+    size_t decode_scan(std::unique_ptr<process_line> process_line, const JlsRect& rect, const_byte_span encoded_source)
     {
         Strategy::process_line_ = std::move(process_line);
 
-        const uint8_t* compressed_bytes{compressed_data.data};
+        const auto* scan_begin{encoded_source.begin()};
         rect_ = rect;
 
-        Strategy::initialize(compressed_data);
-        do_scan();
-        skip_bytes(compressed_data, static_cast<size_t>(Strategy::get_cur_byte_pos() - compressed_bytes));
+        Strategy::initialize(encoded_source);
+
+        // Process images without a restart interval, as 1 large restart interval.
+        if (restart_interval_ == 0)
+        {
+            restart_interval_ = frame_info().height;
+        }
+
+        decode_lines();
+
+        return Strategy::get_cur_byte_pos() - scan_begin;
     }
 
     // clang-format on
@@ -493,17 +476,22 @@ private:
         t1_ = t1;
         t2_ = t2;
         t3_ = t3;
+        reset_threshold_ = static_cast<uint8_t>(reset_threshold);
 
         initialize_quantization_lut();
+        reset_parameters();
+    }
 
-        const jls_context context_initial_value(std::max(2, (traits_.range + 32) / 64));
+    void reset_parameters() noexcept
+    {
+        const context_regular_mode context_initial_value(traits_.range);
         for (auto& context : contexts_)
         {
             context = context_initial_value;
         }
 
-        context_runmode_[0] = context_run_mode(0, std::max(2, (traits_.range + 32) / 64), reset_threshold);
-        context_runmode_[1] = context_run_mode(1, std::max(2, (traits_.range + 32) / 64), reset_threshold);
+        context_run_mode_[0] = context_run_mode(0, traits_.range);
+        context_run_mode_[1] = context_run_mode(1, traits_.range);
         run_index_ = 0;
     }
 
@@ -517,17 +505,16 @@ private:
         return frame;
     }
 
-    // do_scan: Encodes or decodes a scan.
     // In ILV_SAMPLE mode, multiple components are handled in do_line
-    // In ILV_LINE mode, a call do do_line is made for every component
+    // In ILV_LINE mode, a call to do_line is made for every component
     // In ILV_NONE mode, do_scan is called for each component
-    void do_scan()
+    void encode_lines()
     {
         const uint32_t pixel_stride{width_ + 4U};
         const size_t component_count{
             parameters().interleave_mode == interleave_mode::line ? static_cast<size_t>(frame_info().component_count) : 1U};
 
-        std::vector<pixel_type> line_buffer(static_cast<size_t>(2) * component_count * pixel_stride);
+        std::vector<pixel_type> line_buffer(component_count * pixel_stride * 2);
         std::vector<int32_t> run_index(component_count);
 
         for (uint32_t line{}; line < frame_info().height; ++line)
@@ -539,7 +526,7 @@ private:
                 std::swap(previous_line_, current_line_);
             }
 
-            Strategy::on_line_begin(width_, current_line_, pixel_stride);
+            Strategy::on_line_begin(current_line_, width_, pixel_stride);
 
             for (size_t component{}; component < component_count; ++component)
             {
@@ -554,20 +541,91 @@ private:
                 previous_line_ += pixel_stride;
                 current_line_ += pixel_stride;
             }
-
-            if (static_cast<uint32_t>(rect_.Y) <= line && line < static_cast<uint32_t>(rect_.Y + rect_.Height))
-            {
-                Strategy::on_line_end(rect_.Width,
-                                      current_line_ + rect_.X - (static_cast<size_t>(component_count) * pixel_stride),
-                                      pixel_stride);
-            }
         }
 
         Strategy::end_scan();
     }
 
+    void decode_lines()
+    {
+        const uint32_t pixel_stride{width_ + 4U};
+        const size_t component_count{
+            parameters().interleave_mode == interleave_mode::line ? static_cast<size_t>(frame_info().component_count) : 1U};
+
+        std::vector<pixel_type> line_buffer(component_count * pixel_stride * 2);
+        std::vector<int32_t> run_index(component_count);
+
+        for (uint32_t line{};;)
+        {
+            const uint32_t lines_in_interval{std::min(frame_info().height - line, restart_interval_)};
+
+            for (uint32_t mcu{}; mcu < lines_in_interval; ++mcu, ++line)
+            {
+                previous_line_ = &line_buffer[1];
+                current_line_ = &line_buffer[1 + static_cast<size_t>(component_count) * pixel_stride];
+                if ((line & 1) == 1)
+                {
+                    std::swap(previous_line_, current_line_);
+                }
+
+                for (size_t component{}; component < component_count; ++component)
+                {
+                    run_index_ = run_index[component];
+
+                    // initialize edge pixels used for prediction
+                    previous_line_[width_] = previous_line_[width_ - 1];
+                    current_line_[-1] = previous_line_[0];
+                    do_line(static_cast<pixel_type*>(nullptr)); // dummy argument for overload resolution
+
+                    run_index[component] = run_index_;
+                    previous_line_ += pixel_stride;
+                    current_line_ += pixel_stride;
+                }
+
+                // Only copy the line if it is part of the output rectangle.
+                if (static_cast<uint32_t>(rect_.Y) <= line && line < static_cast<uint32_t>(rect_.Y + rect_.Height))
+                {
+                    Strategy::on_line_end(current_line_ + rect_.X - (static_cast<size_t>(component_count) * pixel_stride),
+                                          rect_.Width,
+                                          pixel_stride);
+                }
+            }
+
+            if (line == frame_info().height)
+                break;
+
+            // At this point in the byte stream a restart marker should be present: process it.
+            read_restart_marker();
+            restart_interval_counter_ = (restart_interval_counter_ + 1) % jpeg_restart_marker_range;
+
+            // After a restart marker it is required to reset the decoder.
+            Strategy::reset();
+            std::fill(line_buffer.begin(), line_buffer.end(), pixel_type{});
+            std::fill(run_index.begin(), run_index.end(), 0);
+            reset_parameters();
+        }
+
+        Strategy::end_scan();
+    }
+
+    void read_restart_marker()
+    {
+        auto byte{Strategy::read_byte()};
+        if (UNLIKELY(byte != jpeg_marker_start_byte))
+            impl::throw_jpegls_error(jpegls_errc::restart_marker_not_found);
+
+        // Read all preceding 0xFF fill values until a non 0xFF value has been found. (see T.81, B.1.1.2)
+        do
+        {
+            byte = Strategy::read_byte();
+        } while (byte == jpeg_marker_start_byte);
+
+        if (UNLIKELY(byte != jpeg_restart_marker_base + restart_interval_counter_))
+            impl::throw_jpegls_error(jpegls_errc::restart_marker_not_found);
+    }
+
     /// <summary>Encodes/Decodes a scan line of quads in ILV_SAMPLE mode</summary>
-    void do_line(quad<sample_type>*)
+    void do_line(quad<sample_type>* /*template_selector*/)
     {
         int32_t index{};
         while (static_cast<uint32_t>(index) < width_)
@@ -612,16 +670,16 @@ private:
         const int32_t k{context.get_golomb_code()};
         const int32_t e_mapped_error_value{
             decode_value(k, traits_.limit - J[run_index_] - 1, traits_.quantized_bits_per_pixel)};
-        const int32_t error_value{context.compute_error_value(e_mapped_error_value + context.run_interruption_type, k)};
-        context.update_variables(error_value, e_mapped_error_value);
+        const int32_t error_value{context.compute_error_value(e_mapped_error_value + context.run_interruption_type(), k)};
+        context.update_variables(error_value, e_mapped_error_value, reset_threshold_);
         return error_value;
     }
 
     triplet<sample_type> decode_run_interruption_pixel(triplet<sample_type> ra, triplet<sample_type> rb)
     {
-        const int32_t error_value1{decode_run_interruption_error(context_runmode_[0])};
-        const int32_t error_value2{decode_run_interruption_error(context_runmode_[0])};
-        const int32_t error_value3{decode_run_interruption_error(context_runmode_[0])};
+        const int32_t error_value1{decode_run_interruption_error(context_run_mode_[0])};
+        const int32_t error_value2{decode_run_interruption_error(context_run_mode_[0])};
+        const int32_t error_value3{decode_run_interruption_error(context_run_mode_[0])};
 
         return triplet<sample_type>(traits_.compute_reconstructed_sample(rb.v1, error_value1 * sign(rb.v1 - ra.v1)),
                                     traits_.compute_reconstructed_sample(rb.v2, error_value2 * sign(rb.v2 - ra.v2)),
@@ -630,10 +688,10 @@ private:
 
     quad<sample_type> decode_run_interruption_pixel(quad<sample_type> ra, quad<sample_type> rb)
     {
-        const int32_t error_value1{decode_run_interruption_error(context_runmode_[0])};
-        const int32_t error_value2{decode_run_interruption_error(context_runmode_[0])};
-        const int32_t error_value3{decode_run_interruption_error(context_runmode_[0])};
-        const int32_t error_value4{decode_run_interruption_error(context_runmode_[0])};
+        const int32_t error_value1{decode_run_interruption_error(context_run_mode_[0])};
+        const int32_t error_value2{decode_run_interruption_error(context_run_mode_[0])};
+        const int32_t error_value3{decode_run_interruption_error(context_run_mode_[0])};
+        const int32_t error_value4{decode_run_interruption_error(context_run_mode_[0])};
 
         return quad<sample_type>(
             triplet<sample_type>(traits_.compute_reconstructed_sample(rb.v1, error_value1 * sign(rb.v1 - ra.v1)),
@@ -646,11 +704,11 @@ private:
     {
         if (std::abs(ra - rb) <= traits_.near_lossless)
         {
-            const int32_t error_value{decode_run_interruption_error(context_runmode_[1])};
+            const int32_t error_value{decode_run_interruption_error(context_run_mode_[1])};
             return static_cast<sample_type>(traits_.compute_reconstructed_sample(ra, error_value));
         }
 
-        const int32_t error_value{decode_run_interruption_error(context_runmode_[0])};
+        const int32_t error_value{decode_run_interruption_error(context_run_mode_[0])};
         return static_cast<sample_type>(traits_.compute_reconstructed_sample(rb, error_value * sign(rb - ra)));
     }
 
@@ -678,7 +736,7 @@ private:
             index += (J[run_index_] > 0) ? Strategy::read_value(J[run_index_]) : 0;
         }
 
-        if (index > pixel_count)
+        if (UNLIKELY(index > pixel_count))
             impl::throw_jpegls_error(jpegls_errc::invalid_encoded_data);
 
         for (int32_t i{}; i < index; ++i)
@@ -689,7 +747,7 @@ private:
         return index;
     }
 
-    int32_t do_run_mode(const int32_t start_index, decoder_strategy*)
+    int32_t do_run_mode(const int32_t start_index, decoder_strategy* /*template_selector*/)
     {
         const pixel_type ra{current_line_[start_index - 1]};
 
@@ -710,12 +768,12 @@ private:
     {
         const int32_t k{context.get_golomb_code()};
         const bool map{context.compute_map(error_value, k)};
-        const int32_t e_mapped_error_value{2 * std::abs(error_value) - context.run_interruption_type -
+        const int32_t e_mapped_error_value{2 * std::abs(error_value) - context.run_interruption_type() -
                                            static_cast<int32_t>(map)};
 
-        ASSERT(error_value == context.compute_error_value(e_mapped_error_value + context.run_interruption_type, k));
+        ASSERT(error_value == context.compute_error_value(e_mapped_error_value + context.run_interruption_type(), k));
         encode_mapped_value(k, e_mapped_error_value, traits_.limit - J[run_index_] - 1);
-        context.update_variables(error_value, e_mapped_error_value);
+        context.update_variables(error_value, e_mapped_error_value, reset_threshold_);
     }
 
     sample_type encode_run_interruption_pixel(const int32_t x, const int32_t ra, const int32_t rb)
@@ -723,12 +781,12 @@ private:
         if (std::abs(ra - rb) <= traits_.near_lossless)
         {
             const int32_t error_value{traits_.compute_error_value(x - ra)};
-            encode_run_interruption_error(context_runmode_[1], error_value);
+            encode_run_interruption_error(context_run_mode_[1], error_value);
             return static_cast<sample_type>(traits_.compute_reconstructed_sample(ra, error_value));
         }
 
         const int32_t error_value{traits_.compute_error_value((x - rb) * sign(rb - ra))};
-        encode_run_interruption_error(context_runmode_[0], error_value);
+        encode_run_interruption_error(context_run_mode_[0], error_value);
         return static_cast<sample_type>(traits_.compute_reconstructed_sample(rb, error_value * sign(rb - ra)));
     }
 
@@ -736,13 +794,13 @@ private:
                                                        const triplet<sample_type> rb)
     {
         const int32_t error_value1{traits_.compute_error_value(sign(rb.v1 - ra.v1) * (x.v1 - rb.v1))};
-        encode_run_interruption_error(context_runmode_[0], error_value1);
+        encode_run_interruption_error(context_run_mode_[0], error_value1);
 
         const int32_t error_value2{traits_.compute_error_value(sign(rb.v2 - ra.v2) * (x.v2 - rb.v2))};
-        encode_run_interruption_error(context_runmode_[0], error_value2);
+        encode_run_interruption_error(context_run_mode_[0], error_value2);
 
         const int32_t error_value3{traits_.compute_error_value(sign(rb.v3 - ra.v3) * (x.v3 - rb.v3))};
-        encode_run_interruption_error(context_runmode_[0], error_value3);
+        encode_run_interruption_error(context_run_mode_[0], error_value3);
 
         return triplet<sample_type>(traits_.compute_reconstructed_sample(rb.v1, error_value1 * sign(rb.v1 - ra.v1)),
                                     traits_.compute_reconstructed_sample(rb.v2, error_value2 * sign(rb.v2 - ra.v2)),
@@ -753,16 +811,16 @@ private:
                                                     const quad<sample_type> rb)
     {
         const int32_t error_value1{traits_.compute_error_value(sign(rb.v1 - ra.v1) * (x.v1 - rb.v1))};
-        encode_run_interruption_error(context_runmode_[0], error_value1);
+        encode_run_interruption_error(context_run_mode_[0], error_value1);
 
         const int32_t error_value2{traits_.compute_error_value(sign(rb.v2 - ra.v2) * (x.v2 - rb.v2))};
-        encode_run_interruption_error(context_runmode_[0], error_value2);
+        encode_run_interruption_error(context_run_mode_[0], error_value2);
 
         const int32_t error_value3{traits_.compute_error_value(sign(rb.v3 - ra.v3) * (x.v3 - rb.v3))};
-        encode_run_interruption_error(context_runmode_[0], error_value3);
+        encode_run_interruption_error(context_run_mode_[0], error_value3);
 
         const int32_t error_value4{traits_.compute_error_value(sign(rb.v4 - ra.v4) * (x.v4 - rb.v4))};
-        encode_run_interruption_error(context_runmode_[0], error_value4);
+        encode_run_interruption_error(context_run_mode_[0], error_value4);
 
         return quad<sample_type>(
             triplet<sample_type>(traits_.compute_reconstructed_sample(rb.v1, error_value1 * sign(rb.v1 - ra.v1)),
@@ -793,7 +851,7 @@ private:
         }
     }
 
-    int32_t do_run_mode(const int32_t index, encoder_strategy*)
+    int32_t do_run_mode(const int32_t index, encoder_strategy* /*strategy*/)
     {
         const int32_t count_type_remain = width_ - index;
         pixel_type* type_cur_x{current_line_ + index};
@@ -828,10 +886,13 @@ private:
     int32_t t1_{};
     int32_t t2_{};
     int32_t t3_{};
+    uint8_t reset_threshold_{};
+    uint32_t restart_interval_{};
+    uint32_t restart_interval_counter_{};
 
     // compression context
-    std::array<jls_context, 365> contexts_;
-    std::array<context_run_mode, 2> context_runmode_;
+    std::array<context_regular_mode, 365> contexts_;
+    std::array<context_run_mode, 2> context_run_mode_;
     int32_t run_index_{};
     pixel_type* previous_line_{};
     pixel_type* current_line_{};
@@ -842,42 +903,5 @@ private:
 };
 
 
-// Functions to build tables used to decode short Golomb codes.
-
-inline std::pair<int32_t, int32_t> create_encoded_value(const int32_t k, const int32_t mapped_error) noexcept
-{
-    const int32_t high_bits{mapped_error >> k};
-    return std::make_pair(high_bits + k + 1, (1 << k) | (mapped_error & ((1 << k) - 1)));
-}
-
-inline golomb_code_table initialize_table(const int32_t k) noexcept
-{
-    golomb_code_table table;
-    for (int16_t error_value{};; ++error_value)
-    {
-        // Q is not used when k != 0
-        const int32_t mapped_error_value{map_error_value(error_value)};
-        const std::pair<int32_t, int32_t> pair_code{create_encoded_value(k, mapped_error_value)};
-        if (static_cast<size_t>(pair_code.first) > golomb_code_table::byte_bit_count)
-            break;
-
-        const golomb_code code(error_value, static_cast<int16_t>(pair_code.first));
-        table.add_entry(static_cast<uint8_t>(pair_code.second), code);
-    }
-
-    for (int16_t error_value{-1};; --error_value)
-    {
-        // Q is not used when k != 0
-        const int32_t mapped_error_value{map_error_value(error_value)};
-        const std::pair<int32_t, int32_t> pair_code{create_encoded_value(k, mapped_error_value)};
-        if (static_cast<size_t>(pair_code.first) > golomb_code_table::byte_bit_count)
-            break;
-
-        const auto code{golomb_code(error_value, static_cast<int16_t>(pair_code.first))};
-        table.add_entry(static_cast<uint8_t>(pair_code.second), code);
-    }
-
-    return table;
-}
 
 } // namespace charls

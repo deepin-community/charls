@@ -7,7 +7,25 @@
 #include "../src/jpegls_preset_parameters_type.h"
 #include "../src/util.h"
 
+#include <vector>
+
 namespace charls { namespace test {
+
+inline void push_back(std::vector<uint8_t>& values, const uint16_t value)
+{
+     values.push_back(static_cast<uint8_t>(value >> 8));
+     values.push_back(static_cast<uint8_t>(value));
+}
+
+
+inline void push_back(std::vector<uint8_t>& values, const uint32_t value)
+{
+     values.push_back(static_cast<uint8_t>(value >> 24));
+     values.push_back(static_cast<uint8_t>(value >> 16));
+     values.push_back(static_cast<uint8_t>(value >> 8));
+     values.push_back(static_cast<uint8_t>(value));
+}
+
 
 class jpeg_test_stream_writer final
 {
@@ -61,6 +79,41 @@ public:
         write_segment(jpeg_marker_code::jpegls_preset_parameters, segment.data(), segment.size());
     }
 
+    void write_oversize_image_dimension(const uint32_t number_of_bytes, const uint32_t height, const uint32_t width, const bool extra_byte = false)
+    {
+        // Format is defined in ISO/IEC 14495-1, C.2.4.1.4
+        std::vector<uint8_t> segment;
+
+        segment.push_back(static_cast<uint8_t>(jpegls_preset_parameters_type::oversize_image_dimension));
+        segment.push_back(static_cast<uint8_t>(number_of_bytes)); // Wxy: number of bytes used to represent Ye and Xe [2..4].
+        switch (number_of_bytes)
+        {
+        case 2:
+            push_back(segment, static_cast<uint16_t>(height));
+            push_back(segment, static_cast<uint16_t>(width));
+            break;
+
+        case 3:
+            push_back_uint24(segment, height);
+            push_back_uint24(segment, width);
+            break;
+
+        default:
+            push_back(segment, height);
+            push_back(segment, width);
+            break;
+        }
+
+        if (extra_byte)
+        {
+            // This will make the segment non-conforming.
+            segment.push_back(0);
+        }
+
+        write_segment(jpeg_marker_code::jpegls_preset_parameters, segment.data(), segment.size());
+    }
+
+
     void write_start_of_scan_segment(int component_id, const int component_count, const int near_lossless,
                                      const interleave_mode interleave_mode)
     {
@@ -80,6 +133,36 @@ public:
         segment.push_back(0);                                     // transformation
 
         write_segment(jpeg_marker_code::start_of_scan, segment.data(), segment.size());
+    }
+
+    void write_define_restart_interval(const uint32_t restart_interval, const int size)
+    {
+        std::vector<uint8_t> segment;
+        switch (size)
+        {
+        case 2:
+            push_back(segment, static_cast<uint16_t>(restart_interval));
+            break;
+
+        case 3:
+            push_back_uint24(segment, restart_interval);
+            break;
+
+        case 4:
+            push_back(segment, restart_interval);
+            break;
+
+        default:
+            assert(false);
+            break;
+        }
+
+        write_segment(jpeg_marker_code::define_restart_interval, segment.data(), segment.size());
+    }
+
+    void write_restart_marker(const uint8_t interval_index)
+    {
+        write_marker(static_cast<jpeg_marker_code>(jpeg_restart_marker_base + interval_index));
     }
 
     void write_segment(const jpeg_marker_code marker_code, const void* data, const size_t data_size)
@@ -119,6 +202,14 @@ public:
     int componentIdOverride{};
     uint8_t mapping_table_selector{};
     std::vector<uint8_t> buffer;
+
+private:
+    static void push_back_uint24(std::vector<uint8_t>& values, const uint32_t value)
+    {
+        values.push_back(static_cast<uint8_t>(value >> 16));
+        values.push_back(static_cast<uint8_t>(value >> 8));
+        values.push_back(static_cast<uint8_t>(value));
+    }
 };
 
 }} // namespace charls::test

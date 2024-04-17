@@ -3,24 +3,23 @@
 
 #pragma once
 
-#include "util.h"
-
+#include "../src/context_regular_mode.h"
 #include <cassert>
 #include <cstdint>
 
 namespace charls {
 
 // Purpose: a JPEG-LS context with it's current statistics.
-struct jls_context final
+struct jls_context_v220 final
 {
     int32_t A{};
     int32_t B{};
     int16_t C{};
     int16_t N{1};
 
-    jls_context() = default;
+    jls_context_v220() = default;
 
-    explicit jls_context(const int32_t a) noexcept : A{a}
+    explicit jls_context_v220(const int32_t a) noexcept : A{a}
     {
     }
 
@@ -32,6 +31,7 @@ struct jls_context final
         return bit_wise_sign(2 * B + N - 1);
     }
 
+    /// <summary>Code segment A.12 – Variables update.</summary>
     FORCE_INLINE void update_variables(const int32_t error_value, const int32_t near_lossless,
                                        const int32_t reset_threshold)
     {
@@ -43,18 +43,18 @@ struct jls_context final
         int n{N};
 
         constexpr int limit{65536 * 256};
-        if (a >= limit || std::abs(b) >= limit)
+        if (UNLIKELY(a >= limit || std::abs(b) >= limit))
             impl::throw_jpegls_error(jpegls_errc::invalid_encoded_data);
 
         if (n == reset_threshold)
         {
-            a = a >> 1;
-            b = b >> 1;
-            n = n >> 1;
+            a >>= 1;
+            b >>= 1;
+            n >>= 1;
         }
 
         A = a;
-        n = n + 1;
+        ++n;
         N = static_cast<int16_t>(n);
 
         if (b + n <= 0)
@@ -64,7 +64,7 @@ struct jls_context final
             {
                 b = -n + 1;
             }
-            C = C - (C > -128);
+            C = static_cast<int16_t>(C - static_cast<int16_t>(C > -128));
         }
         else if (b > 0)
         {
@@ -73,7 +73,7 @@ struct jls_context final
             {
                 b = 0;
             }
-            C = C + (C < 127);
+            C = static_cast<int16_t>(C + static_cast<int16_t>(C < 127));
         }
         B = b;
 
@@ -86,12 +86,12 @@ struct jls_context final
     /// </summary>
     FORCE_INLINE int32_t get_golomb_coding_parameter() const
     {
-        int32_t k{0};
+        int32_t k{};
         for (; N << k < A && k < max_k_value; ++k)
         {
         }
 
-        if (k == max_k_value)
+        if (UNLIKELY(k == max_k_value))
             impl::throw_jpegls_error(jpegls_errc::invalid_encoded_data);
 
         return k;

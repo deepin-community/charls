@@ -12,8 +12,8 @@ namespace charls {
 class encoder_strategy
 {
 public:
-    explicit encoder_strategy(const frame_info& frame, const coding_parameters& parameters) noexcept :
-        frame_info_{frame}, parameters_{parameters}
+    encoder_strategy(const frame_info& info, const coding_parameters& parameters) noexcept :
+        frame_info_{info}, parameters_{parameters}
     {
     }
 
@@ -25,18 +25,12 @@ public:
     encoder_strategy& operator=(encoder_strategy&&) = delete;
 
     virtual std::unique_ptr<process_line> create_process_line(byte_span stream_info, size_t stride) = 0;
-    virtual void set_presets(const jpegls_pc_parameters& preset_coding_parameters) = 0;
+    virtual void set_presets(const jpegls_pc_parameters& preset_coding_parameters, uint32_t restart_interval) = 0;
     virtual size_t encode_scan(std::unique_ptr<process_line> raw_data, byte_span destination) = 0;
 
-    int32_t peek_byte();
-
-    void on_line_begin(const size_t pixel_count, void* destination, const size_t pixel_stride) const
+    void on_line_begin(void* destination, const size_t pixel_count, const size_t pixel_stride) const
     {
         process_line_->new_line_requested(destination, pixel_count, pixel_stride);
-    }
-
-    static void on_line_end(size_t /*pixel_count*/, void* /*destination*/, size_t /*pixel_stride*/) noexcept
-    {
     }
 
 protected:
@@ -98,7 +92,7 @@ protected:
 
     void flush()
     {
-        if (compressed_length_ < 4)
+        if (UNLIKELY(compressed_length_ < 4))
             impl::throw_jpegls_error(jpegls_errc::destination_buffer_too_small);
 
         for (int i{}; i < 4; ++i)
@@ -154,8 +148,6 @@ private:
     uint8_t* position_{};
     bool is_ff_written_{};
     size_t bytes_written_{};
-
-    std::vector<uint8_t> buffer_;
 };
 
 } // namespace charls

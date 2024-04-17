@@ -35,10 +35,10 @@ public:
     TEST_METHOD(set_destination_buffer_nullptr) // NOLINT
     {
         array<uint8_t, 10> buffer{};
-        auto error = charls_jpegls_encoder_set_destination_buffer(nullptr, buffer.data(), buffer.size());
+        auto error{charls_jpegls_encoder_set_destination_buffer(nullptr, buffer.data(), buffer.size())};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
 
-        auto* const encoder = charls_jpegls_encoder_create();
+        auto* const encoder{charls_jpegls_encoder_create()};
         error = charls_jpegls_encoder_set_destination_buffer(encoder, nullptr, buffer.size());
         charls_jpegls_encoder_destroy(encoder);
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
@@ -46,11 +46,11 @@ public:
 
     TEST_METHOD(set_frame_info_buffer_nullptr) // NOLINT
     {
-        charls_frame_info frame_info{};
-        auto error = charls_jpegls_encoder_set_frame_info(nullptr, &frame_info);
+        constexpr charls_frame_info frame_info{};
+        auto error{charls_jpegls_encoder_set_frame_info(nullptr, &frame_info)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
 
-        auto* const encoder = charls_jpegls_encoder_create();
+        auto* const encoder{charls_jpegls_encoder_create()};
         error = charls_jpegls_encoder_set_frame_info(encoder, nullptr);
         charls_jpegls_encoder_destroy(encoder);
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
@@ -58,23 +58,23 @@ public:
 
     TEST_METHOD(set_near_lossless_nullptr) // NOLINT
     {
-        const auto error = charls_jpegls_encoder_set_near_lossless(nullptr, 1);
+        const auto error{charls_jpegls_encoder_set_near_lossless(nullptr, 1)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
     }
 
     TEST_METHOD(set_interleave_mode_nullptr) // NOLINT
     {
-        const auto error = charls_jpegls_encoder_set_interleave_mode(nullptr, charls_interleave_mode::line);
+        const auto error{charls_jpegls_encoder_set_interleave_mode(nullptr, charls_interleave_mode::line)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
     }
 
     TEST_METHOD(set_preset_coding_parameters_nullptr) // NOLINT
     {
-        charls_jpegls_pc_parameters parameters{};
-        auto error = charls_jpegls_encoder_set_preset_coding_parameters(nullptr, &parameters);
+        constexpr jpegls_pc_parameters parameters{};
+        auto error{charls_jpegls_encoder_set_preset_coding_parameters(nullptr, &parameters)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
 
-        auto* const encoder = charls_jpegls_encoder_create();
+        auto* const encoder{charls_jpegls_encoder_create()};
         error = charls_jpegls_encoder_set_preset_coding_parameters(encoder, nullptr);
         charls_jpegls_encoder_destroy(encoder);
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
@@ -82,19 +82,19 @@ public:
 
     TEST_METHOD(set_color_transformation_nullptr) // NOLINT
     {
-        const auto error = charls_jpegls_encoder_set_color_transformation(nullptr, charls_color_transformation::hp1);
+        const auto error{charls_jpegls_encoder_set_color_transformation(nullptr, charls_color_transformation::hp1)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
     }
 
     TEST_METHOD(get_estimated_destination_size_nullptr) // NOLINT
     {
         size_t size_in_bytes{};
-        auto error = charls_jpegls_encoder_get_estimated_destination_size(nullptr, &size_in_bytes);
+        auto error{charls_jpegls_encoder_get_estimated_destination_size(nullptr, &size_in_bytes)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
 
-        charls_jpegls_encoder* const encoder = charls_jpegls_encoder_create();
+        charls_jpegls_encoder* const encoder{charls_jpegls_encoder_create()};
 
-        charls_frame_info frame_info{1, 1, 2, 1};
+        constexpr charls_frame_info frame_info{1, 1, 2, 1};
         error = charls_jpegls_encoder_set_frame_info(encoder, &frame_info);
         Assert::AreEqual(jpegls_errc::success, error);
 
@@ -106,10 +106,10 @@ public:
     TEST_METHOD(get_bytes_written_nullptr) // NOLINT
     {
         size_t bytes_written{};
-        auto error = charls_jpegls_encoder_get_bytes_written(nullptr, &bytes_written);
+        auto error{charls_jpegls_encoder_get_bytes_written(nullptr, &bytes_written)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
 
-        charls_jpegls_encoder const* const encoder = charls_jpegls_encoder_create();
+        charls_jpegls_encoder const* const encoder{charls_jpegls_encoder_create()};
         error = charls_jpegls_encoder_get_bytes_written(encoder, nullptr);
         charls_jpegls_encoder_destroy(encoder);
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
@@ -117,11 +117,11 @@ public:
 
     TEST_METHOD(encode_from_buffer_nullptr) // NOLINT
     {
-        const array<uint8_t, 10> source_buffer{};
-        auto error = charls_jpegls_encoder_encode_from_buffer(nullptr, source_buffer.data(), source_buffer.size(), 0);
+        constexpr array<uint8_t, 10> source_buffer{};
+        auto error{charls_jpegls_encoder_encode_from_buffer(nullptr, source_buffer.data(), source_buffer.size(), 0)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
 
-        auto* const encoder = charls_jpegls_encoder_create();
+        auto* const encoder{charls_jpegls_encoder_create()};
         error = charls_jpegls_encoder_encode_from_buffer(encoder, nullptr, source_buffer.size(), 0);
         charls_jpegls_encoder_destroy(encoder);
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
@@ -129,11 +129,11 @@ public:
 
     TEST_METHOD(write_spiff_header_nullptr) // NOLINT
     {
-        charls_spiff_header spiff_header{};
-        auto error = charls_jpegls_encoder_write_spiff_header(nullptr, &spiff_header);
+        constexpr charls_spiff_header spiff_header{};
+        auto error{charls_jpegls_encoder_write_spiff_header(nullptr, &spiff_header)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
 
-        auto* const encoder = charls_jpegls_encoder_create();
+        auto* const encoder{charls_jpegls_encoder_create()};
         error = charls_jpegls_encoder_write_spiff_header(encoder, nullptr);
         charls_jpegls_encoder_destroy(encoder);
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
@@ -141,21 +141,82 @@ public:
 
     TEST_METHOD(write_standard_spiff_header_nullptr) // NOLINT
     {
-        const auto error = charls_jpegls_encoder_write_standard_spiff_header(
-            nullptr, charls_spiff_color_space::cie_lab, charls_spiff_resolution_units::dots_per_centimeter, 1, 1);
+        const auto error{charls_jpegls_encoder_write_standard_spiff_header(
+            nullptr, charls_spiff_color_space::cie_lab, charls_spiff_resolution_units::dots_per_centimeter, 1, 1)};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
     }
 
     TEST_METHOD(write_spiff_entry_nullptr) // NOLINT
     {
-        const array<uint8_t, 10> entry_data{};
-        auto error = charls_jpegls_encoder_write_spiff_entry(nullptr, 5, entry_data.data(), entry_data.size());
+        constexpr array<uint8_t, 10> entry_data{};
+        auto error{charls_jpegls_encoder_write_spiff_entry(nullptr, 5, entry_data.data(), entry_data.size())};
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
 
-        auto* const encoder = charls_jpegls_encoder_create();
+        auto* const encoder{charls_jpegls_encoder_create()};
         error = charls_jpegls_encoder_write_spiff_entry(encoder, 5, nullptr, sizeof(entry_data));
         charls_jpegls_encoder_destroy(encoder);
         Assert::AreEqual(jpegls_errc::invalid_argument, error);
+    }
+
+    TEST_METHOD(write_spiff_end_of_directory_entry_before_header_throws) // NOLINT
+    {
+        const auto error{charls_jpegls_encoder_write_spiff_end_of_directory_entry(nullptr)};
+        Assert::AreEqual(jpegls_errc::invalid_argument, error);
+    }
+
+    TEST_METHOD(write_comment_nullptr) // NOLINT
+    {
+        constexpr array<uint8_t, 10> buffer{};
+        const auto error{charls_jpegls_encoder_write_comment(nullptr, buffer.data(), buffer.size())};
+        Assert::AreEqual(jpegls_errc::invalid_argument, error);
+    }
+
+    TEST_METHOD(write_application_data_nullptr) // NOLINT
+    {
+        constexpr array<uint8_t, 10> buffer{};
+        const auto error{charls_jpegls_encoder_write_application_data(nullptr, 0, buffer.data(), buffer.size())};
+        Assert::AreEqual(jpegls_errc::invalid_argument, error);
+    }
+
+    TEST_METHOD(rewind_nullptr) // NOLINT
+    {
+        const auto error{charls_jpegls_encoder_rewind(nullptr)};
+        Assert::AreEqual(jpegls_errc::invalid_argument, error);
+    }
+
+    TEST_METHOD(encode_to_zero_size_buffer) // NOLINT
+    {
+        auto* encoder{charls_jpegls_encoder_create()};
+        auto error{charls_jpegls_encoder_set_destination_buffer(encoder, nullptr, 0)};
+        Assert::AreEqual(jpegls_errc::success, error);
+
+        constexpr charls_frame_info frame_info{1, 1, 2, 1};
+        error = charls_jpegls_encoder_set_frame_info(encoder, &frame_info);
+        Assert::AreEqual(jpegls_errc::success, error);
+
+        constexpr array<uint8_t, 10> buffer{};
+        error = charls_jpegls_encoder_encode_from_buffer(encoder, buffer.data(), buffer.size(), 0);
+        Assert::AreEqual(jpegls_errc::destination_buffer_too_small, error);
+
+        charls_jpegls_encoder_destroy(encoder);
+    }
+
+    TEST_METHOD(encode_from_zero_size_buffer) // NOLINT
+    {
+        auto* encoder{charls_jpegls_encoder_create()};
+
+        array<uint8_t, 10> buffer{};
+        auto error{charls_jpegls_encoder_set_destination_buffer(encoder, buffer.data(), buffer.size())};
+        Assert::AreEqual(jpegls_errc::success, error);
+
+        constexpr charls_frame_info frame_info{1, 1, 2, 1};
+        error = charls_jpegls_encoder_set_frame_info(encoder, &frame_info);
+        Assert::AreEqual(jpegls_errc::success, error);
+
+        error = charls_jpegls_encoder_encode_from_buffer(encoder, nullptr, 0, 0);
+        Assert::AreEqual(jpegls_errc::destination_buffer_too_small, error);
+
+        charls_jpegls_encoder_destroy(encoder);
     }
 };
 

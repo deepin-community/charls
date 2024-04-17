@@ -9,6 +9,7 @@
 #include <chrono>
 #include <iostream>
 #include <ratio>
+#include <tuple>
 #include <vector>
 
 using charls::frame_info;
@@ -24,52 +25,20 @@ using std::chrono::steady_clock;
 
 namespace {
 
-void test_file16_bit_as12(const char* filename, const int offset, const rect_size size2, const int component_count,
-                          const bool little_endian_file)
-{
-    vector<uint8_t> uncompressed_data = read_file(filename, offset);
-
-    fix_endian(&uncompressed_data, little_endian_file);
-
-    auto* const p = reinterpret_cast<uint16_t*>(uncompressed_data.data());
-
-    for (size_t i = 0; i < uncompressed_data.size() / 2; ++i)
-    {
-        p[i] = p[i] >> 4;
-    }
-
-    test_round_trip(filename, uncompressed_data, size2, 12, component_count);
-}
-
-
 void test_performance(const int loop_count)
 {
-    ////TestFile("test/bad.raw", 0, rect_size(512, 512),  8, 1);
-
     // RGBA image (This is a common PNG sample)
-    test_file("test/alphatest.raw", 0, rect_size(380, 287), 8, 4, false, loop_count);
-
-    const rect_size size1024 = rect_size(1024, 1024);
-    const rect_size size512 = rect_size(512, 512);
+    test_file("test/alphatest.raw", 0, {380, 287}, 8, 4, false, loop_count);
 
     // 16 bit mono
-    test_file("test/MR2_UNC", 1728, size1024, 16, 1, true, loop_count);
+    test_file("test/MR2_UNC", 1728, {1024, 1024}, 16, 1, true, loop_count);
 
     // 8 bit mono
-    test_file("test/0015.raw", 0, size1024, 8, 1, false, loop_count);
-    test_file("test/lena8b.raw", 0, size512, 8, 1, false, loop_count);
+    test_file("test/0015.raw", 0, {1024, 1024}, 8, 1, false, loop_count);
 
     // 8 bit color
-    test_file("test/desktop.ppm", 40, rect_size(1280, 1024), 8, 3, false, loop_count);
-
-    // 12 bit RGB
-    test_file("test/SIEMENS-MR-RGB-16Bits.dcm", -1, rect_size(192, 256), 12, 3, true, loop_count);
-    test_file16_bit_as12("test/DSC_5455.raw", 142949, rect_size(300, 200), 3, true);
-
-    // 16 bit RGB
-    test_file("test/DSC_5455.raw", 142949, rect_size(300, 200), 16, 3, true, loop_count);
+    test_file("test/desktop.ppm", 40, {1280, 1024}, 8, 3, false, loop_count);
 }
-
 
 } // namespace
 
@@ -120,26 +89,37 @@ void decode_performance_tests(const int loop_count)
 {
     cout << "Test decode performance with loop count " << loop_count << "\n";
 
-    const vector<uint8_t> jpegls_compressed = read_file("decodetest.jls");
-
     try
     {
-        vector<uint8_t> uncompressed;
+        // This test expect the file decodetest.jls to exist.
+        // It can be any valid JPEG-LS file.
+        // Changing the content of this file allows different performance measurements.
+        const vector<uint8_t> encoded_source{read_file("decodetest.jls")};
 
-        const auto start = steady_clock::now();
-        for (int i = 0; i < loop_count; ++i)
+        // Pre-allocate the destination outside the measurement loop.
+        // std::vector initializes its elements and this step needs to be excluded from the measurement.
+        vector<uint8_t> destination(jpegls_decoder{encoded_source, true}.destination_size());
+
+        const auto start{steady_clock::now()};
+        for (int i{}; i != loop_count; ++i)
         {
-            jpegls_decoder::decode(jpegls_compressed, uncompressed);
+            const jpegls_decoder decoder{encoded_source, true};
+
+            decoder.decode(destination);
         }
 
-        const auto end = steady_clock::now();
-        const auto diff = end - start;
+        const auto end{steady_clock::now()};
+        const auto diff{end - start};
         cout << "Total decoding time is: " << duration<double, milli>(diff).count() << " ms\n";
         cout << "Decoding time per image: " << duration<double, milli>(diff).count() / loop_count << " ms\n";
     }
     catch (const jpegls_error& e)
     {
         cout << "Decode failure: " << e.what() << "\n";
+    }
+    catch (const std::ios_base::failure& e)
+    {
+        cout << "IO failure (missing decodetest.jls?): " << e.what() << "\n";
     }
 }
 
@@ -153,25 +133,25 @@ void encode_performance_tests(const int loop_count)
     {
         const frame_info info{static_cast<uint32_t>(anymap_file.width()), static_cast<uint32_t>(anymap_file.height()),
                               anymap_file.bits_per_sample(), anymap_file.component_count()};
-        const auto interleave_mode =
-            anymap_file.component_count() > 1 ? charls::interleave_mode::sample : charls::interleave_mode::none;
+        const auto interleave_mode{anymap_file.component_count() > 1 ? charls::interleave_mode::sample
+                                                                     : charls::interleave_mode::none};
 
         jpegls_encoder encoder1;
         encoder1.frame_info(info).interleave_mode(interleave_mode);
         vector<uint8_t> destination(encoder1.estimated_destination_size());
 
-        const auto start = steady_clock::now();
-        for (int i = 0; i < loop_count; ++i)
+        const auto start{steady_clock::now()};
+        for (int i{}; i != loop_count; ++i)
         {
             jpegls_encoder encoder2;
             encoder2.frame_info(info).interleave_mode(interleave_mode);
             encoder2.destination(destination);
 
-            static_cast<void>(encoder2.encode(anymap_file.image_data()));
+            std::ignore = encoder2.encode(anymap_file.image_data());
         }
 
-        const auto end = steady_clock::now();
-        const auto diff = end - start;
+        const auto end{steady_clock::now()};
+        const auto diff{end - start};
         cout << "Total encoding time is: " << duration<double, milli>(diff).count() << " ms\n";
         cout << "Encoding time per image: " << duration<double, milli>(diff).count() / loop_count << " ms\n";
     }

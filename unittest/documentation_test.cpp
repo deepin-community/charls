@@ -16,6 +16,12 @@
 // ReSharper disable CppDeprecatedEntity
 DISABLE_DEPRECATED_WARNING
 
+using Microsoft::VisualStudio::CppUnitTestFramework::Assert;
+using std::vector;
+using namespace charls_test;
+
+namespace charls { namespace test {
+
 namespace {
 
 // The following functions are used as sample code in the documentation
@@ -29,7 +35,7 @@ std::vector<uint8_t> decode_simple_8_bit_monochrome(const std::vector<uint8_t>& 
     std::tie(frame_info, std::ignore) = charls::jpegls_decoder::decode(source, destination);
 
     if (frame_info.component_count != 1 || frame_info.bits_per_sample != 8)
-        throw std::exception("Not a 8 bit monochrome image");
+        throw std::runtime_error("Not a 8 bit monochrome image");
 
     return destination;
 }
@@ -40,7 +46,7 @@ std::vector<uint8_t> decode_advanced(const std::vector<uint8_t>& source)
 
     // Standalone JPEG-LS files may have a SPIFF header (color space info, etc.)
     if (decoder.spiff_header_has_value() && decoder.spiff_header().color_space != charls::spiff_color_space::grayscale)
-        throw std::exception("Not a grayscale image");
+        throw std::runtime_error("Not a grayscale image");
 
     // After read_header() other properties can also be retrieved.
     if (decoder.near_lossless() != 0)
@@ -55,20 +61,20 @@ std::vector<uint8_t> decode_simple_8_bit_monochrome_legacy(const std::vector<uin
 {
     std::array<char, ErrorMessageSize> error_message{};
     JlsParameters parameters{};
-    auto error = JpegLsReadHeader(source.data(), source.size(), &parameters, error_message.data());
+    auto error{JpegLsReadHeader(source.data(), source.size(), &parameters, error_message.data())};
     if (error != CharlsApiResultType::OK)
-        throw std::exception(error_message.data());
+        throw std::runtime_error(error_message.data());
 
     if (parameters.components != 1 || parameters.bitsPerSample != 8)
-        throw std::exception("Not a 8 bit monochrome image");
+        throw std::runtime_error("Not a 8 bit monochrome image");
 
-    const size_t destination_size = static_cast<size_t>(parameters.width) * static_cast<uint32_t>(parameters.height);
+    const auto destination_size{static_cast<size_t>(parameters.width) * static_cast<uint32_t>(parameters.height)};
     std::vector<uint8_t> destination(destination_size);
 
     error = JpegLsDecode(destination.data(), destination.size(), source.data(), source.size(), &parameters,
                          error_message.data());
     if (error != CharlsApiResultType::OK)
-        throw std::exception(error_message.data());
+        throw std::runtime_error(error_message.data());
 
     return destination;
 }
@@ -76,8 +82,8 @@ std::vector<uint8_t> decode_simple_8_bit_monochrome_legacy(const std::vector<uin
 std::vector<uint8_t> encode_simple_8_bit_monochrome(const std::vector<uint8_t>& source, const uint32_t width,
                                                     const uint32_t height)
 {
-    constexpr auto bits_per_sample = 8;
-    constexpr auto component_count = 1;
+    constexpr auto bits_per_sample{8};
+    constexpr auto component_count{1};
     return charls::jpegls_encoder::encode(source, {width, height, bits_per_sample, component_count});
 }
 
@@ -108,14 +114,14 @@ std::vector<uint8_t> encode_simple_8_bit_monochrome_legacy(const std::vector<uin
     parameters.bitsPerSample = 8;
     parameters.components = 1;
 
-    const size_t estimated_destination_size = static_cast<size_t>(width) * height * 1 * 1 + 1024;
+    const size_t estimated_destination_size{static_cast<size_t>(width) * height * 1 * 1 + 1024};
     std::vector<uint8_t> destination(estimated_destination_size);
 
     size_t bytes_written;
-    const auto error = JpegLsEncode(destination.data(), destination.size(), &bytes_written, source.data(), source.size(),
-                                    &parameters, error_message.data());
+    const auto error{JpegLsEncode(destination.data(), destination.size(), &bytes_written, source.data(), source.size(),
+                                    &parameters, error_message.data())};
     if (error != CharlsApiResultType::OK)
-        throw std::exception(error_message.data());
+        throw std::runtime_error(error_message.data());
 
     destination.resize(bytes_written);
     return destination;
@@ -123,71 +129,60 @@ std::vector<uint8_t> encode_simple_8_bit_monochrome_legacy(const std::vector<uin
 
 } // namespace
 
-using Microsoft::VisualStudio::CppUnitTestFramework::Assert;
-using std::vector;
-using namespace charls_test;
-
-namespace charls { namespace test {
 
 TEST_CLASS(documentation_test)
 {
 public:
     TEST_METHOD(call_decode_simple_8_bit_monochrome) // NOLINT
     {
-        const vector<uint8_t> source{read_file("DataFiles/lena8b.jls")};
+        const vector<uint8_t> source{read_file("DataFiles/tulips-gray-8bit-512-512-hp-encoder.jls")};
+        const vector<uint8_t> charls_decoded{decode_simple_8_bit_monochrome(source)};
 
-        const vector<uint8_t> charls_decoded = decode_simple_8_bit_monochrome(source);
-
-        test_decoded_data(charls_decoded, "DataFiles/lena8b.pgm");
+        test_decoded_data(charls_decoded, "DataFiles/tulips-gray-8bit-512-512.pgm");
     }
 
     TEST_METHOD(call_decode_advanced) // NOLINT
     {
-        const vector<uint8_t> source{read_file("DataFiles/lena8b.jls")};
+        const vector<uint8_t> source{read_file("DataFiles/tulips-gray-8bit-512-512-hp-encoder.jls")};
+        const vector<uint8_t> charls_decoded{decode_advanced(source)};
 
-        const vector<uint8_t> charls_decoded = decode_advanced(source);
-
-        test_decoded_data(charls_decoded, "DataFiles/lena8b.pgm");
+        test_decoded_data(charls_decoded, "DataFiles/tulips-gray-8bit-512-512.pgm");
     }
 
     TEST_METHOD(call_decode_simple_8_bit_monochrome_legacy) // NOLINT
     {
-        const vector<uint8_t> source{read_file("DataFiles/lena8b.jls")};
+        const vector<uint8_t> source{read_file("DataFiles/tulips-gray-8bit-512-512-hp-encoder.jls")};
+        const vector<uint8_t> charls_decoded{decode_simple_8_bit_monochrome_legacy(source)};
 
-        const vector<uint8_t> charls_decoded = decode_simple_8_bit_monochrome_legacy(source);
-
-        test_decoded_data(charls_decoded, "DataFiles/lena8b.pgm");
+        test_decoded_data(charls_decoded, "DataFiles/tulips-gray-8bit-512-512.pgm");
     }
 
     TEST_METHOD(call_encode_simple_8_bit_monochrome) // NOLINT
     {
-        portable_anymap_file reference_file("DataFiles/lena8b.pgm");
-
-        const vector<uint8_t> charls_encoded =
-            encode_simple_8_bit_monochrome(reference_file.image_data(), static_cast<uint32_t>(reference_file.width()),
-                                           static_cast<uint32_t>(reference_file.height()));
+        portable_anymap_file reference_file("DataFiles/tulips-gray-8bit-512-512.pgm");
+        const vector<uint8_t> charls_encoded{encode_simple_8_bit_monochrome(reference_file.image_data(),
+                                                                            static_cast<uint32_t>(reference_file.width()),
+                                                                            static_cast<uint32_t>(reference_file.height()))};
 
         test_by_decoding(charls_encoded, reference_file, interleave_mode::none);
     }
 
     TEST_METHOD(call_encode_advanced_8_bit_monochrome) // NOLINT
     {
-        portable_anymap_file reference_file("DataFiles/lena8b.pgm");
-
-        const vector<uint8_t> charls_encoded =
+        portable_anymap_file reference_file("DataFiles/tulips-gray-8bit-512-512.pgm");
+        const vector<uint8_t> charls_encoded{
             encode_advanced_8_bit_monochrome(reference_file.image_data(), static_cast<uint32_t>(reference_file.width()),
-                                             static_cast<uint32_t>(reference_file.height()));
+                                             static_cast<uint32_t>(reference_file.height()))};
 
         test_by_decoding(charls_encoded, reference_file, interleave_mode::none);
     }
 
     TEST_METHOD(call_encode_simple_8_bit_monochrome_legacy) // NOLINT
     {
-        portable_anymap_file reference_file("DataFiles/lena8b.pgm");
-
-        const vector<uint8_t> charls_encoded =
+        portable_anymap_file reference_file("DataFiles/tulips-gray-8bit-512-512.pgm");
+        const vector<uint8_t> charls_encoded{
             encode_simple_8_bit_monochrome_legacy(reference_file.image_data(), static_cast<uint32_t>(reference_file.width()),
-                                                  static_cast<uint32_t>(reference_file.height()));
+                                                  static_cast<uint32_t>(reference_file.height()))};
 
         test_by_decoding(charls_encoded, reference_file, interleave_mode::none);
     }
@@ -195,12 +190,12 @@ public:
 private:
     static void test_decoded_data(const vector<uint8_t>& decoded_source, const char* raw_filename)
     {
-        portable_anymap_file reference_file = read_anymap_reference_file(raw_filename, interleave_mode::none);
-        const vector<uint8_t>& uncompressed_source = reference_file.image_data();
+        portable_anymap_file reference_file{read_anymap_reference_file(raw_filename, interleave_mode::none)};
+        const vector<uint8_t>& uncompressed_source{reference_file.image_data()};
 
         Assert::AreEqual(decoded_source.size(), uncompressed_source.size());
 
-        for (size_t i = 0; i < uncompressed_source.size(); ++i)
+        for (size_t i{}; i != uncompressed_source.size(); ++i)
         {
             if (decoded_source[i] != uncompressed_source[i]) // AreEqual is very slow, pre-test to speed up 50X
             {
@@ -216,7 +211,7 @@ private:
         decoder.source(encoded_source);
         decoder.read_header();
 
-        const auto& frame_info = decoder.frame_info();
+        const auto& frame_info{decoder.frame_info()};
         Assert::AreEqual(static_cast<uint32_t>(reference_file.width()), frame_info.width);
         Assert::AreEqual(static_cast<uint32_t>(reference_file.height()), frame_info.height);
         Assert::AreEqual(reference_file.component_count(), frame_info.component_count);
@@ -226,11 +221,11 @@ private:
         vector<uint8_t> destination(decoder.destination_size());
         decoder.decode(destination);
 
-        const vector<uint8_t>& uncompressed_source = reference_file.image_data();
+        const vector<uint8_t>& uncompressed_source{reference_file.image_data()};
 
         Assert::AreEqual(destination.size(), uncompressed_source.size());
 
-        for (size_t i = 0; i < uncompressed_source.size(); ++i)
+        for (size_t i{}; i != uncompressed_source.size(); ++i)
         {
             if (destination[i] != uncompressed_source[i]) // AreEqual is very slow, pre-test to speed up 50X
             {

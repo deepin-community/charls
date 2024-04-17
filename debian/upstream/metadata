@@ -3,3 +3,4 @@ Bug-Database: https://github.com/team-charls/charls/issues
 Bug-Submit: https://github.com/team-charls/charls/issues/new
 Repository: https://github.com/team-charls/charls.git
 Repository-Browse: https://github.com/team-charls/charls
+Security-Contact: https://github.com/team-charls/charls/tree/HEAD/SECURITY.md
