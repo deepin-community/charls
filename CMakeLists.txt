@@ -1,7 +1,7 @@
 # Copyright (c) Team CharLS.
 # SPDX-License-Identifier: BSD-3-Clause
 
-cmake_minimum_required(VERSION 3.13...3.19)
+cmake_minimum_required(VERSION 3.13...3.25)
 
 # Extract the version info from version.h
 file(READ "include/charls/version.h" version)
@@ -31,23 +31,21 @@ option(CHARLS_INSTALL "Generate the install target." ${MASTER_PROJECT})
 # Provide BUILD_SHARED_LIBS as an option for GUI tools
 option(BUILD_SHARED_LIBS "Will control if charls lib is build as shared lib/DLL or static library")
 
-# The options used by the CI builds to ensure the source remains warning free.
-# Not enabled by default to make CharLS package and end-user friendly.
+# These options are used by the CI pipeline to ensure new warnings are detected quickly.
+# Not enabled by default to ensure the CharLS package is end-user friendly.
 option(CHARLS_PEDANTIC_WARNINGS "Enable extra warnings and static analysis." OFF)
-option(CHARLS_THREAT_WARNINGS_AS_ERRORS "Treat Warnings as Errors." OFF)
+option(CHARLS_TREAT_WARNING_AS_ERROR "Treat a warning as an error." OFF)
 
-# CharLS requires C++14 or newer.
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# CharLS is written in portable c++:
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Configure the supported C++ compilers: gcc, clang and MSVC
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
   set(PEDANTIC_CXX_COMPILE_FLAGS
-    -pedantic-errors
     -Wall
     -Wextra
     -pedantic
+    -pedantic-errors
     -Wold-style-cast
     -Wfloat-equal
     -Wlogical-op
@@ -72,6 +70,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     -Wuseless-cast
     -Wvector-operation-performance
     -Wsized-deallocation
+    -Wattributes
+    -Wuseless-cast
+    -Wconversion
   )
   if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 6.0)
       set(PEDANTIC_CXX_COMPILE_FLAGS ${PEDANTIC_CXX_COMPILE_FLAGS}
@@ -80,14 +81,42 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
         -Wduplicated-cond
       )
   endif()
+  if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.0)
+      set(PEDANTIC_CXX_COMPILE_FLAGS ${PEDANTIC_CXX_COMPILE_FLAGS}
+        -Wcast-align=strict
+      )
+  endif()
 
-  set(WERROR_FLAG -Werror)
+  set(WARNINGS_AS_ERRORS_FLAG_COMPILER -Werror)
+  set(WARNINGS_AS_ERRORS_FLAG_LINKER LINKER:--fatal-warnings)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set(PEDANTIC_CXX_COMPILE_FLAGS
-      -Weverything
+      -Wall
+      -Wextra # (-W is synonym)
+      -Wnon-gcc
       -Wpedantic
+      -Wcast-qual
+      -Wformat=2
+      -Wvla
+      -Warray-bounds-pointer-arithmetic
+      -Wassign-enum
+      -Wbad-function-cast
+      -Wconditional-uninitialized
+      -Widiomatic-parentheses
+      -Wimplicit-fallthrough
+      -Wloop-analysis
+      -Wpointer-arith
+      -Wshift-sign-overflow
+      -Wtautological-constant-in-range-compare
+      -Wunreachable-code-aggressive
+      -Wthread-safety
+      -Wthread-safety-beta
+      -Wcomma
+      -Wconversion
+      # -Weverything provides the option to discover usefull Clang warnings.
+      # The list below ignores not useful Weverything warnings.
       -Wno-weak-vtables                       # Ignore, linker will remove the couple of extra vtables.
       -Wno-padded                             # Ignore, padding optimization is not needed.
       -Wno-c++98-compat                       # Ignore, CharLS 2.x targets C++14, ignore C++98 compatibility.
@@ -104,13 +133,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
       -Wno-undefined-func-template            # Ignore, linker will complain if final template code is not available.
     )
   endif()
+  if (NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10.0)
+    set(PEDANTIC_CXX_COMPILE_FLAGS ${PEDANTIC_CXX_COMPILE_FLAGS}
+      -Walloca
+    )
+  endif()
 
-  set(WERROR_FLAG -Werror)
+  set(WARNINGS_AS_ERRORS_FLAG_COMPILER -Werror)
+  if (NOT CMAKE_CXX_COMPILER_ID MATCHES "AppleClang")
+    set(WARNINGS_AS_ERRORS_FLAG_LINKER LINKER:--fatal-warnings)
+  endif()
 endif()
 
 if(MSVC)
   set(PEDANTIC_CXX_COMPILE_FLAGS /W4)
-  set(WERROR_FLAG /WX)
+  set(WARNINGS_AS_ERRORS_FLAG_COMPILER /WX)
+  set(WARNINGS_AS_ERRORS_FLAG_LINKER /WX)
 
   # Exception settings are not set for ARM(64) when building for Ninja
   string(TOLOWER ${CMAKE_CXX_COMPILER} CXX_COMPILER_LOWER)
@@ -127,7 +165,7 @@ if(MSVC)
   add_compile_options("/utf-8")
 
   # Zc:__cplusplus: Will configure the MSVC compiler to use the correct value for the __cplusplus macro
-  # (introduced with Visual Studio 2017 version 15.7)
+  # This option is introduced with Visual Studio 2017 version 15.7
   if(MSVC_VERSION GREATER_EQUAL 1914)
     add_compile_options("/Zc:__cplusplus")
   endif()
@@ -135,14 +173,29 @@ if(MSVC)
   # /Zc:throwingNew: Will configure the MSVC compiler that only the standard throwing operator new is used.
   add_compile_options("/Zc:throwingNew")
 
+  # /permissive-: Will configure the MSVC compiler to accept only standards conformance C++
+  # This option is introduced with Visual Studio 2017.
+  if(MSVC_VERSION GREATER_EQUAL 1910)
+    add_compile_options("/permissive-")
+  endif()
+
+  # /ZH:SHA_256: Wiill use SHA 256 for checksums between source code and debug symbols (more secure)
+  add_compile_options("/ZH:SHA_256")
+
   # /guard:cf: Will enable Control Flow Guard, which provides addition compile time and runtime checks.
   add_compile_options("/guard:cf")
   add_link_options("/guard:cf")
+
+  # /CETCOMPAT: Mark executable image compatible with the Control-flow Enforcement Technology (CET) Shadow Stack.
+  # CET is only supported by x64 and x86 CPUs (11th generation Intel and AMD Zen3 and newer)
+  if(${ARM_DETECTED} EQUAL 0)
+    add_link_options("/CETCOMPAT")
+  endif()
+
 endif()
 
 # When enabled apply the pedantic warnings options and warnings as errors to globally.
 if(CHARLS_PEDANTIC_WARNINGS)
-
   if(MSVC)
     # Remove existing warning level (W3 is added by default by CMake), duplicate level will generate cmd-line warnings.
     string(REGEX REPLACE " /W[0-4]" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
@@ -151,14 +204,23 @@ if(CHARLS_PEDANTIC_WARNINGS)
   add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:${PEDANTIC_CXX_COMPILE_FLAGS}>")
 endif()
 
-if(CHARLS_THREAT_WARNINGS_AS_ERRORS)
-  add_compile_options(${WERROR_FLAG})
+if(CHARLS_TREAT_WARNING_AS_ERROR)
+  add_compile_options(${WARNINGS_AS_ERRORS_FLAG_COMPILER})
+  add_link_options(${WARNINGS_AS_ERRORS_FLAG_LINKER})
 endif()
 
 include(src/CMakeLists.txt)
 
 if(CHARLS_BUILD_TESTS)
+  enable_testing()
   add_subdirectory(test)
+
+  # The unit tests project depends on the VS C++ unit test framework. Use the -unittest option of the charlstest tool for other platforms.
+  add_test(
+    NAME basic-test
+    COMMAND charlstest -unittest
+    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+  )
 endif()
 
 if(CHARLS_BUILD_FUZZ_TEST)

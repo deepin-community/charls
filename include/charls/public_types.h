@@ -16,13 +16,14 @@ namespace charls {
 namespace impl {
 
 #else
+#include <stddef.h>
 #include <stdint.h>
 #endif
 
 // The following enum values are for C applications, for C++ the enums are defined after these definitions.
 // For the documentation, see the C++ enums definitions.
 
-RETURN_TYPE_SUCCESS_(return == 0)
+CHARLS_RETURN_TYPE_SUCCESS(return == 0)
 enum charls_jpegls_errc
 {
     CHARLS_JPEGLS_ERRC_SUCCESS = 0,
@@ -50,6 +51,11 @@ enum charls_jpegls_errc
     CHARLS_JPEGLS_ERRC_INVALID_JPEGLS_PRESET_PARAMETER_TYPE = 22,
     CHARLS_JPEGLS_ERRC_JPEGLS_PRESET_EXTENDED_PARAMETER_TYPE_NOT_SUPPORTED = 23,
     CHARLS_JPEGLS_ERRC_MISSING_END_OF_SPIFF_DIRECTORY = 24,
+    CHARLS_JPEGLS_ERRC_UNEXPECTED_RESTART_MARKER = 25,
+    CHARLS_JPEGLS_ERRC_RESTART_MARKER_NOT_FOUND = 26,
+    CHARLS_JPEGLS_ERRC_CALLBACK_FAILED = 27,
+    CHARLS_JPEGLS_ERRC_END_OF_IMAGE_MARKER_NOT_FOUND = 28,
+    CHARLS_JPEGLS_ERRC_INVALID_SPIFF_HEADER = 29,
     CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_WIDTH = 100,
     CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_HEIGHT = 101,
     CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_COMPONENT_COUNT = 102,
@@ -57,15 +63,17 @@ enum charls_jpegls_errc
     CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_INTERLEAVE_MODE = 104,
     CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_NEAR_LOSSLESS = 105,
     CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_JPEGLS_PC_PARAMETERS = 106,
-    CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_SPIFF_ENTRY_SIZE = 110,
+    CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_SIZE = 110,
     CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_COLOR_TRANSFORMATION = 111,
+    CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_STRIDE = 112,
+    CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_ENCODING_OPTIONS = 113,
     CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_WIDTH = 200,
     CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_HEIGHT = 201,
     CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_COMPONENT_COUNT = 202,
     CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_BITS_PER_SAMPLE = 203,
     CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_INTERLEAVE_MODE = 204,
     CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_NEAR_LOSSLESS = 205,
-    CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_JPEGLS_PC_PARAMETERS = 206
+    CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_JPEGLS_PRESET_PARAMETERS = 206
 };
 
 enum charls_interleave_mode
@@ -73,6 +81,14 @@ enum charls_interleave_mode
     CHARLS_INTERLEAVE_MODE_NONE = 0,
     CHARLS_INTERLEAVE_MODE_LINE = 1,
     CHARLS_INTERLEAVE_MODE_SAMPLE = 2
+};
+
+enum charls_encoding_options
+{
+    CHARLS_ENCODING_OPTIONS_NONE = 0,
+    CHARLS_ENCODING_OPTIONS_EVEN_DESTINATION_SIZE = 1,
+    CHARLS_ENCODING_OPTIONS_INCLUDE_VERSION_NUMBER = 2,
+    CHARLS_ENCODING_OPTIONS_INCLUDE_PC_PARAMETERS_JAI = 4
 };
 
 enum charls_color_transformation
@@ -155,8 +171,8 @@ namespace charls {
 /// <summary>
 /// Defines the result values that are returned by the CharLS API functions.
 /// </summary>
-RETURN_TYPE_SUCCESS_(return == 0)
-enum class jpegls_errc
+CHARLS_RETURN_TYPE_SUCCESS(return == 0)
+enum class CHARLS_NO_DISCARD jpegls_errc
 {
     /// <summary>
     /// The operation completed without errors.
@@ -286,6 +302,32 @@ enum class jpegls_errc
     missing_end_of_spiff_directory = impl::CHARLS_JPEGLS_ERRC_MISSING_END_OF_SPIFF_DIRECTORY,
 
     /// <summary>
+    /// This error is returned when a restart marker is found outside the encoded entropy data.
+    /// </summary>
+    unexpected_restart_marker = impl::CHARLS_JPEGLS_ERRC_UNEXPECTED_RESTART_MARKER,
+
+    /// <summary>
+    /// This error is returned when an expected restart marker is not found. It may indicate data corruption in the JPEG-LS
+    /// byte stream.
+    /// </summary>
+    restart_marker_not_found = impl::CHARLS_JPEGLS_ERRC_RESTART_MARKER_NOT_FOUND,
+
+    /// <summary>
+    /// This error is returned when a callback function returns a non zero value.
+    /// </summary>
+    callback_failed = impl::CHARLS_JPEGLS_ERRC_CALLBACK_FAILED,
+
+    /// <summary>
+    /// This error is returned when the End of Image (EOI) marker could not be found.
+    /// </summary>
+    end_of_image_marker_not_found = impl::CHARLS_JPEGLS_ERRC_END_OF_IMAGE_MARKER_NOT_FOUND,
+
+    /// <summary>
+    /// This error is returned when the SPIFF header is invalid.
+    /// </summary>
+    invalid_spiff_header = impl::CHARLS_JPEGLS_ERRC_INVALID_SPIFF_HEADER,
+
+    /// <summary>
     /// The argument for the width parameter is outside the range [1, 65535].
     /// </summary>
     invalid_argument_width = impl::CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_WIDTH,
@@ -322,14 +364,24 @@ enum class jpegls_errc
     invalid_argument_jpegls_pc_parameters = impl::CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_JPEGLS_PC_PARAMETERS,
 
     /// <summary>
-    /// The argument for the entry size parameter is outside the range [0, 65528].
+    /// The argument for the size parameter is outside the valid range.
     /// </summary>
-    invalid_argument_spiff_entry_size = impl::CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_SPIFF_ENTRY_SIZE,
+    invalid_argument_size = impl::CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_SIZE,
 
     /// <summary>
     /// The argument for the color component is not (None, Hp1, Hp2, Hp3) or invalid in combination with component count.
     /// </summary>
     invalid_argument_color_transformation = impl::CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_COLOR_TRANSFORMATION,
+
+    /// <summary>
+    /// The stride argument does not match with the frame info and buffer size.
+    /// </summary>
+    invalid_argument_stride = impl::CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_STRIDE,
+
+    /// <summary>
+    /// The encoding options argument has an invalid value.
+    /// </summary>
+    invalid_argument_encoding_options = impl::CHARLS_JPEGLS_ERRC_INVALID_ARGUMENT_ENCODING_OPTIONS,
 
     /// <summary>
     /// This error is returned when the stream contains a width parameter defined more then once or in an incompatible way.
@@ -342,7 +394,8 @@ enum class jpegls_errc
     invalid_parameter_height = impl::CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_HEIGHT,
 
     /// <summary>
-    /// This error is returned when the stream contains a component count parameter outside the range [1,255]
+    /// This error is returned when the stream contains a component count parameter outside the range [1,255] for SOF or
+    /// [1,4] for SOS.
     /// </summary>
     invalid_parameter_component_count = impl::CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_COMPONENT_COUNT,
 
@@ -364,9 +417,9 @@ enum class jpegls_errc
     invalid_parameter_near_lossless = impl::CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_NEAR_LOSSLESS,
 
     /// <summary>
-    /// This error is returned when the stream contains an invalid JPEG-LS preset coding parameters segment.
+    /// This error is returned when the stream contains an invalid JPEG-LS preset parameters segment.
     /// </summary>
-    invalid_parameter_jpegls_pc_parameters = impl::CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_JPEGLS_PC_PARAMETERS,
+    invalid_parameter_jpegls_preset_parameters = impl::CHARLS_JPEGLS_ERRC_INVALID_PARAMETER_JPEGLS_PRESET_PARAMETERS,
 
     // Legacy enumerator names, will be removed in next major release. Not tagged with [[deprecated]] as that is a C++17
     // extension.
@@ -411,6 +464,64 @@ enum class interleave_mode
     Line = line,
     Sample = sample
 };
+
+
+namespace encoding_options_private {
+
+/// <summary>
+/// Defines options that can be enabled during the encoding process.
+/// These options can be combined.
+/// </summary>
+enum class encoding_options : unsigned
+{
+    /// <summary>
+    /// No special encoding option is defined.
+    /// </summary>
+    none = impl::CHARLS_ENCODING_OPTIONS_NONE,
+
+    /// <summary>
+    /// Ensures that the generated encoded data has an even size by adding
+    /// an extra 0xFF byte to the End Of Image (EOI) marker.
+    /// DICOM requires that data is always even. This can be done by adding a zero padding byte
+    /// after the encoded data or with this option.
+    /// This option is not default enabled.
+    /// </summary>
+    even_destination_size = impl::CHARLS_ENCODING_OPTIONS_EVEN_DESTINATION_SIZE,
+
+    /// <summary>
+    /// Add a comment (COM) segment with the content: "charls [version-number]" to the encoded data.
+    /// Storing the used encoder version can be helpful for long term archival of images.
+    /// This option is not default enabled.
+    /// </summary>
+    include_version_number = impl::CHARLS_ENCODING_OPTIONS_INCLUDE_VERSION_NUMBER,
+
+    /// <summary>
+    /// Writes explicitly the default JPEG-LS preset coding parameters when the
+    /// bits per sample is larger then 12 bits.
+    /// The Java Advanced Imaging (JAI) JPEG-LS codec has a defect that causes it to use invalid
+    /// preset coding parameters for these types of images.
+    /// Most users of this codec are aware of this problem and have implemented a work-around.
+    /// This option is default enabled. Will not be default enabled in the next major version upgrade.
+    /// </summary>
+    include_pc_parameters_jai = impl::CHARLS_ENCODING_OPTIONS_INCLUDE_PC_PARAMETERS_JAI
+};
+
+constexpr encoding_options operator|(const encoding_options lhs, const encoding_options rhs) noexcept
+{
+    using T = std::underlying_type_t<encoding_options>;
+    return static_cast<encoding_options>(static_cast<T>(lhs) | static_cast<T>(rhs));
+}
+
+CHARLS_CONSTEXPR encoding_options& operator|=(encoding_options& lhs, const encoding_options rhs) noexcept
+{
+    lhs = lhs | rhs;
+    return lhs;
+}
+
+} // namespace encoding_options_private
+
+using encoding_options = encoding_options_private::encoding_options;
+
 
 /// <summary>
 /// Defines color space transformations as defined and implemented by the JPEG-LS library of HP Labs.
@@ -457,6 +568,7 @@ enum class color_transformation
     HP3 = hp3
 };
 
+
 /// <summary>
 /// Defines the Application profile identifier options that can be used in a SPIFF header v2, as defined in ISO/IEC 10918-3,
 /// F.1.2
@@ -465,6 +577,7 @@ enum class spiff_profile_id : int32_t
 {
     /// <summary>
     /// No profile identified.
+    /// This is the only valid option for JPEG-LS encoded images.
     /// </summary>
     none = impl::CHARLS_SPIFF_PROFILE_ID_NONE,
 
@@ -489,6 +602,7 @@ enum class spiff_profile_id : int32_t
     continuous_tone_facsimile = impl::CHARLS_SPIFF_PROFILE_ID_CONTINUOUS_TONE_FACSIMILE
 };
 
+
 /// <summary>
 /// Defines the color space options that can be used in a SPIFF header v2, as defined in ISO/IEC 10918-3, F.2.1.1
 /// </summary>
@@ -496,6 +610,7 @@ enum class spiff_color_space : int32_t
 {
     /// <summary>
     /// Bi-level image. Each image sample is one bit: 0 = white and 1 = black.
+    /// This option is not valid for JPEG-LS encoded images.
     /// </summary>
     bi_level_black = impl::CHARLS_SPIFF_COLOR_SPACE_BI_LEVEL_BLACK,
 
@@ -557,9 +672,11 @@ enum class spiff_color_space : int32_t
 
     /// <summary>
     /// Bi-level image. Each image sample is one bit: 1 = white and 0 = black.
+    /// This option is not valid for JPEG-LS encoded images.
     /// </summary>
     bi_level_white = impl::CHARLS_SPIFF_COLOR_SPACE_BI_LEVEL_WHITE
 };
+
 
 /// <summary>
 /// Defines the compression options that can be used in a SPIFF header v2, as defined in ISO/IEC 10918-3, F.2.1
@@ -597,10 +714,12 @@ enum class spiff_compression_type : int32_t
     jpeg = impl::CHARLS_SPIFF_COMPRESSION_TYPE_JPEG,
 
     /// <summary>
-    /// ISO/IEC 14495-1 or ISO/IEC 14495-2, commonly known as JPEG-LS. (extension defined in ISO/IEC 14495-1)
+    /// ISO/IEC 14495-1 or ISO/IEC 14495-2, commonly known as JPEG-LS. (extension defined in ISO/IEC 14495-1).
+    /// This is the only valid option for JPEG-LS encoded images.
     /// </summary>
     jpeg_ls = impl::CHARLS_SPIFF_COMPRESSION_TYPE_JPEG_LS
 };
+
 
 /// <summary>
 /// Defines the resolution units for the VRES and HRES parameters, as defined in ISO/IEC 10918-3, F.2.1
@@ -626,6 +745,7 @@ enum class spiff_resolution_units : int32_t
     /// </summary>
     dots_per_centimeter = impl::CHARLS_SPIFF_RESOLUTION_UNITS_DOTS_PER_CENTIMETER
 };
+
 
 /// <summary>
 /// Official defined SPIFF tags defined in Table F.5 (ISO/IEC 10918-3)
@@ -717,17 +837,14 @@ using ColorTransformation CHARLS_DEPRECATED = color_transformation;
 
 } // namespace charls
 
-namespace std {
-
 template<>
-struct is_error_code_enum<charls::jpegls_errc> final : true_type
+struct std::is_error_code_enum<charls::jpegls_errc> final : std::true_type
 {
 };
 
-} // namespace std
-
 using charls_jpegls_errc = charls::jpegls_errc;
 using charls_interleave_mode = charls::interleave_mode;
+using charls_encoding_options = charls::encoding_options;
 using charls_color_transformation = charls::color_transformation;
 
 using charls_spiff_profile_id = charls::spiff_profile_id;
@@ -743,12 +860,13 @@ using CharlsColorTransformationType = charls::color_transformation;
 
 // Defines the size of the char buffer that should be passed to the legacy CharLS API to get the error message text.
 // Note: this define will be removed in the next major release as it is not defined in the charls namespace.
-constexpr std::size_t ErrorMessageSize = 256;
+CHARLS_CONSTEXPR_INLINE constexpr std::size_t ErrorMessageSize{256};
 
 #else
 
 typedef enum charls_jpegls_errc charls_jpegls_errc;
 typedef enum charls_interleave_mode charls_interleave_mode;
+typedef enum charls_encoding_options charls_encoding_options;
 typedef enum charls_color_transformation charls_color_transformation;
 
 typedef int32_t charls_spiff_profile_id;
@@ -823,6 +941,7 @@ struct charls_frame_info CHARLS_FINAL
     int32_t component_count;
 };
 
+
 /// <summary>
 /// Defines the JPEG-LS preset coding parameters as defined in ISO/IEC 14495-1, C.2.4.1.1.
 /// JPEG-LS defines a default set of parameters, but custom parameters can be used.
@@ -857,6 +976,7 @@ struct charls_jpegls_pc_parameters CHARLS_FINAL
     int32_t reset_value;
 };
 
+
 /// <summary>
 /// Defines the JPEG-LS preset coding parameters as defined in ISO/IEC 14495-1, C.2.4.1.1.
 /// JPEG-LS defines a default set of parameters, but custom parameters can be used.
@@ -890,6 +1010,10 @@ struct JpegLSPresetCodingParameters
     /// </summary>
     int32_t ResetValue;
 };
+
+#ifndef __cplusplus
+typedef struct JpegLSPresetCodingParameters JpegLSPresetCodingParameters;
+#endif
 
 
 struct JlsRect
@@ -951,6 +1075,10 @@ struct JfifParameters
     void* thumbnail;
 };
 
+#ifndef __cplusplus
+typedef struct JfifParameters JfifParameters;
+#endif
+
 
 struct JlsParameters
 {
@@ -1010,18 +1138,44 @@ struct JlsParameters
     /// </summary>
     char outputBgr;
 
-    struct JpegLSPresetCodingParameters custom;
-    struct JfifParameters jfif;
+    JpegLSPresetCodingParameters custom;
+    JfifParameters jfif;
 };
 
-
 #ifdef __cplusplus
+
+/// <summary>
+/// Function definition for a callback handler that will be called when a comment (COM) segment is found.
+/// </summary>
+/// <remarks>
+/// </remarks>
+/// <param name="data">Reference to the data of the COM segment.</param>
+/// <param name="size">Size in bytes of the data of the COM segment.</param>
+/// <param name="user_context">Free to use context information that can be set during the installation of the
+/// handler.</param>
+using charls_at_comment_handler = int32_t(CHARLS_API_CALLING_CONVENTION*)(const void* data, size_t size, void* user_context);
+
+/// <summary>
+/// Function definition for a callback handler that will be called when an application data (APPn) segment is found.
+/// </summary>
+/// <remarks>
+/// </remarks>
+/// <param name="application_data_id">Id of the APPn segment [0 .. 15].</param>
+/// <param name="data">Reference to the data of the APPn segment.</param>
+/// <param name="size">Size in bytes of the data of the APPn segment.</param>
+/// <param name="user_context">Free to use context information that can be set during the installation of the
+/// handler.</param>
+using charls_at_application_data_handler = int32_t(CHARLS_API_CALLING_CONVENTION*)(int32_t application_data_id,
+                                                                                   const void* data, size_t size,
+                                                                                   void* user_context);
 
 namespace charls {
 
 using spiff_header = charls_spiff_header;
 using frame_info = charls_frame_info;
 using jpegls_pc_parameters = charls_jpegls_pc_parameters;
+using at_comment_handler = charls_at_comment_handler;
+using at_application_data_handler = charls_at_application_data_handler;
 
 static_assert(sizeof(spiff_header) == 40, "size of struct is incorrect, check padding settings");
 static_assert(sizeof(frame_info) == 16, "size of struct is incorrect, check padding settings");
@@ -1031,8 +1185,16 @@ static_assert(sizeof(jpegls_pc_parameters) == 20, "size of struct is incorrect, 
 
 #else
 
+typedef int32_t(CHARLS_API_CALLING_CONVENTION* charls_at_comment_handler)(const void* data, size_t size, void* user_context);
+typedef int32_t(CHARLS_API_CALLING_CONVENTION* charls_at_application_data_handler)(int32_t application_data_id,
+                                                                                   const void* data, size_t size,
+                                                                                   void* user_context);
+
 typedef struct charls_spiff_header charls_spiff_header;
 typedef struct charls_frame_info charls_frame_info;
 typedef struct charls_jpegls_pc_parameters charls_jpegls_pc_parameters;
+
+typedef struct JlsParameters JlsParameters;
+typedef struct JlsRect JlsRect;
 
 #endif

@@ -33,12 +33,19 @@ public:
         Assert::IsTrue(strlen(jpegls_category().name()) > 0);
     }
 
+    TEST_METHOD(is_error_code_enum) // NOLINT
+    {
+        constexpr std::is_error_code_enum<charls::jpegls_errc> test;
+
+        Assert::IsTrue(test);
+    }
+
     TEST_METHOD(jpegls_category_call_message) // NOLINT
     {
         const std::error_category& category{jpegls_category()};
 
-        std::string message{category.message(0)};
-        Assert::IsTrue(message.size() > 0);
+        const std::string message{category.message(0)};
+        Assert::IsFalse(message.empty());
     }
 };
 

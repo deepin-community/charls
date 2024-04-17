@@ -1,6 +1,7 @@
 // Copyright (c) Team CharLS.
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include "conditional_static_cast.h"
 #include "default_traits.h"
 #include "encoder_strategy.h"
 #include "jls_codec_factory.h"
@@ -48,11 +49,11 @@ int8_t quantize_gradient_org(const jpegls_pc_parameters& preset, const int32_t d
 
 vector<int8_t> create_quantize_lut_lossless(const int32_t bit_count)
 {
-    const jpegls_pc_parameters preset{compute_default((1 << static_cast<uint32_t>(bit_count)) - 1, 0)};
+    const jpegls_pc_parameters preset{compute_default(calculate_maximum_sample_value(bit_count), 0)};
     const int32_t range{preset.maximum_sample_value + 1};
 
     vector<int8_t> lut(static_cast<size_t>(range) * 2);
-    for (size_t i{}; i < lut.size(); ++i)
+    for (size_t i{}; i != lut.size(); ++i)
     {
         lut[i] = quantize_gradient_org(preset, static_cast<int32_t>(i) - range);
     }
@@ -65,6 +66,45 @@ unique_ptr<Strategy> make_codec(const Traits& traits, const frame_info& frame_in
 {
     return make_unique<charls::jls_codec<Traits, Strategy>>(traits, frame_info, parameters);
 }
+
+// Functions to build tables used to decode short Golomb codes.
+
+std::pair<int32_t, int32_t> create_encoded_value(const int32_t k, const int32_t mapped_error) noexcept
+{
+    const int32_t high_bits{mapped_error >> k};
+    return std::make_pair(high_bits + k + 1, (1 << k) | (mapped_error & ((1 << k) - 1)));
+}
+
+golomb_code_table initialize_table(const int32_t k) noexcept
+{
+    golomb_code_table table;
+    for (int16_t error_value{};; ++error_value)
+    {
+        // Q is not used when k != 0
+        const int32_t mapped_error_value{map_error_value(error_value)};
+        const std::pair<int32_t, int32_t> pair_code{create_encoded_value(k, mapped_error_value)};
+        if (static_cast<size_t>(pair_code.first) > golomb_code_table::byte_bit_count)
+            break;
+
+        const golomb_code code(error_value, conditional_static_cast<int16_t>(pair_code.first));
+        table.add_entry(static_cast<uint8_t>(pair_code.second), code);
+    }
+
+    for (int16_t error_value{-1};; --error_value)
+    {
+        // Q is not used when k != 0
+        const int32_t mapped_error_value{map_error_value(error_value)};
+        const std::pair<int32_t, int32_t> pair_code{create_encoded_value(k, mapped_error_value)};
+        if (static_cast<size_t>(pair_code.first) > golomb_code_table::byte_bit_count)
+            break;
+
+        const auto code{golomb_code(error_value, static_cast<int16_t>(pair_code.first))};
+        table.add_entry(static_cast<uint8_t>(pair_code.second), code);
+    }
+
+    return table;
+}
+
 
 } // namespace
 
@@ -100,7 +140,7 @@ unique_ptr<Strategy> jls_codec_factory<Strategy>::create_codec(const frame_info&
 {
     unique_ptr<Strategy> codec;
 
-    if (preset_coding_parameters.reset_value == 0 || preset_coding_parameters.reset_value == default_reset_value)
+    if (preset_coding_parameters.reset_value == default_reset_value)
     {
         codec = try_create_optimized_codec(frame, parameters);
     }
@@ -109,29 +149,27 @@ unique_ptr<Strategy> jls_codec_factory<Strategy>::create_codec(const frame_info&
     {
         if (frame.bits_per_sample <= 8)
         {
-            default_traits<uint8_t, uint8_t> traits(
-                static_cast<int32_t>(calculate_maximum_sample_value(frame.bits_per_sample)), parameters.near_lossless,
-                preset_coding_parameters.reset_value);
+            default_traits<uint8_t, uint8_t> traits(calculate_maximum_sample_value(frame.bits_per_sample),
+                                                    parameters.near_lossless, preset_coding_parameters.reset_value);
             traits.maximum_sample_value = preset_coding_parameters.maximum_sample_value;
             codec = make_unique<jls_codec<default_traits<uint8_t, uint8_t>, Strategy>>(traits, frame, parameters);
         }
         else
         {
-            default_traits<uint16_t, uint16_t> traits(
-                static_cast<int32_t>(calculate_maximum_sample_value(frame.bits_per_sample)), parameters.near_lossless,
-                preset_coding_parameters.reset_value);
+            default_traits<uint16_t, uint16_t> traits(calculate_maximum_sample_value(frame.bits_per_sample),
+                                                      parameters.near_lossless, preset_coding_parameters.reset_value);
             traits.maximum_sample_value = preset_coding_parameters.maximum_sample_value;
             codec = make_unique<jls_codec<default_traits<uint16_t, uint16_t>, Strategy>>(traits, frame, parameters);
         }
     }
 
-    codec->set_presets(preset_coding_parameters);
+    codec->set_presets(preset_coding_parameters, parameters.restart_interval);
     return codec;
 }
 
 template<typename Strategy>
 unique_ptr<Strategy> jls_codec_factory<Strategy>::try_create_optimized_codec(const frame_info& frame,
-                                                                         const coding_parameters& parameters)
+                                                                             const coding_parameters& parameters)
 {
     if (parameters.interleave_mode == interleave_mode::sample && frame.component_count != 3 && frame.component_count != 4)
         return nullptr;
@@ -166,7 +204,7 @@ unique_ptr<Strategy> jls_codec_factory<Strategy>::try_create_optimized_codec(con
 
 #endif
 
-    const auto maxval = static_cast<int>(calculate_maximum_sample_value(frame.bits_per_sample));
+    const auto maxval{calculate_maximum_sample_value(frame.bits_per_sample)};
 
     if (frame.bits_per_sample <= 8)
     {

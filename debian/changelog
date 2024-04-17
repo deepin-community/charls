@@ -1,3 +1,89 @@
+charls (2.4.2-2) unstable; urgency=medium
+
+  * Team upload.
+  * d/maintscript: Remove leftover
+  * d/rules: Migrate to ninja build
+  * d/control: Bump Std-Vers to 4.6.2 no changes needed
+
+ -- Mathieu Malaterre <malat@debian.org>  Mon, 30 Oct 2023 15:56:47 +0100
+
+charls (2.4.2-1) unstable; urgency=medium
+
+  * Team upload.
+  * d/rules: Start using LTO
+  * New upstream version 2.4.2
+  * d/rules: Remove old compat symlinks (oldstable)
+
+ -- Mathieu Malaterre <malat@debian.org>  Thu, 12 Oct 2023 16:16:16 +0200
+
+charls (2.4.1-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 2.4.1
+  * d/symbols: Add new symbols
+
+ -- Mathieu Malaterre <malat@debian.org>  Thu, 19 Jan 2023 16:14:14 +0100
+
+charls (2.3.4-2) unstable; urgency=medium
+
+  * Fix watch file
+  * Standards-Version: 4.6.1 (routine-update)
+
+ -- Andreas Tille <tille@debian.org>  Tue, 06 Dec 2022 18:06:56 +0100
+
+charls (2.3.4-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 2.3.4
+  * d/copyright: Include all binary files from upstream
+  * d/rules: Make sure to check return code of test
+
+ -- Mathieu Malaterre <malat@debian.org>  Thu, 17 Feb 2022 09:11:23 +0100
+
+charls (2.3.3+dfsg-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 2.3.3+dfsg. Closes: #1004842
+
+ -- Mathieu Malaterre <malat@debian.org>  Mon, 07 Feb 2022 09:26:50 +0100
+
+charls (2.3.2+dfsg-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 2.3.2+dfsg
+
+ -- Mathieu Malaterre <malat@debian.org>  Mon, 31 Jan 2022 13:40:42 +0100
+
+charls (2.3.1+dfsg-1) unstable; urgency=medium
+
+  * Team upload.
+  * d/patches: Refactor patch for upstream submission
+  * d/patches: Simplify std c++ version setup
+  * New upstream version 2.3.1+dfsg
+  * d/rules: Start building with more agressive warnings
+  * d/rules: Start building test again
+  * d/rules: Start building applications
+  * d/rules: Simplify configuration using dpkg/default.mk
+  * d/patches: Hide more symbols since DPKG_GENSYMBOLS_CHECK_LEVEL=4 now
+  * d/patches: Add missing visibility setup
+
+ -- Mathieu Malaterre <malat@debian.org>  Wed, 26 Jan 2022 10:20:00 +0100
+
+charls (2.3.0+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 2.3.0+dfsg
+  * d/patches: Refresh patches
+  * d/symbols: Update symbol file to match new release
+
+ -- Mathieu Malaterre <malat@debian.org>  Wed, 26 Jan 2022 09:20:37 +0100
+
+charls (2.2.0+dfsg-4) unstable; urgency=medium
+
+  * Extend CMakeLists.txt to create and install charlsConfigVersion.cmake
+    Closes: #995831
+
+ -- Andreas Tille <tille@debian.org>  Tue, 21 Dec 2021 07:59:22 +0100
+
 charls (2.2.0+dfsg-3) unstable; urgency=medium
 
   [ Steffen Moeller ]

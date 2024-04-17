@@ -17,12 +17,12 @@ CHARLS_API_IMPORT_EXPORT const char* CHARLS_API_CALLING_CONVENTION charls_get_er
 
 namespace charls {
 
-CHARLS_NO_DISCARD inline const std::error_category& jpegls_category() noexcept
+CHARLS_CHECK_RETURN inline const std::error_category& jpegls_category() noexcept
 {
     return *(charls_get_jpegls_category());
 }
 
-CHARLS_NO_DISCARD inline std::error_code make_error_code(jpegls_errc error_value) noexcept
+CHARLS_CHECK_RETURN inline std::error_code make_error_code(jpegls_errc error_value) noexcept
 {
     return {static_cast<int>(error_value), jpegls_category()};
 }
@@ -48,10 +48,10 @@ namespace impl {
 #if defined(_MSC_VER)
 #define CHARLS_NO_INLINE __declspec(noinline)
 #elif defined(__GNUC__)
-#define CHARLS_NO_INLINE __attribute__((noinline))
-#elif defined(__clang__)
+// C++ Compilers that support the GCC extensions (GCC, clang, Intel, etc.)
 #define CHARLS_NO_INLINE __attribute__((noinline))
 #else
+// Unknown C++ compiler, fallback to default behavior.
 #define CHARLS_NO_INLINE
 #endif
 

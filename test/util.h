@@ -6,6 +6,8 @@
 #include <charls/charls.h>
 
 #include <exception>
+#include <istream>
+#include <ostream>
 #include <vector>
 
 struct rect_size final
@@ -18,6 +20,7 @@ struct rect_size final
 };
 
 
+std::ofstream open_output_stream(const char* filename);
 void fix_endian(std::vector<uint8_t>* buffer, bool little_endian_data) noexcept;
 std::vector<uint8_t> read_file(const char* filename, long offset = 0, size_t bytes = 0);
 void write_file(const char* filename, const void* data, size_t size);
@@ -37,21 +40,33 @@ constexpr uint32_t bit_to_byte_count(const int32_t bit_count) noexcept
     return static_cast<uint32_t>((bit_count + 7) / 8);
 }
 
+template<typename Container>
+void read(std::istream& input, Container& destination)
+{
+    input.read(reinterpret_cast<char*>(destination.data()), static_cast<std::streamsize>(destination.size()));
+}
+
+template<typename Container>
+void write(std::ostream& output, const Container& source, const size_t size)
+{
+    output.write(reinterpret_cast<const char*>(source.data()), static_cast<std::streamsize>(size));
+}
+
+
 class unit_test_exception final : public std::exception
 {
-public:
-    explicit unit_test_exception() = default;
 };
 
-class assert final
+
+namespace assert {
+
+inline void is_true(const bool condition)
 {
-public:
-    static void is_true(const bool condition)
-    {
-        if (!condition)
-            throw unit_test_exception();
-    }
-};
+    if (!condition)
+        throw unit_test_exception();
+}
+
+}
 
 #ifdef _MSC_VER
 #define MSVC_WARNING_SUPPRESS(x) \
@@ -60,12 +75,10 @@ public:
 #define MSVC_WARNING_SUPPRESS_NEXT_LINE(x) \
     __pragma(warning(suppress \
                      : x)) // NOLINT(misc-macro-parentheses, bugprone-macro-parentheses, cppcoreguidelines-macro-usage)
-#define MSVC_CONST const
 #else
 #define MSVC_WARNING_SUPPRESS(x)
 #define MSVC_WARNING_UNSUPPRESS()
 #define MSVC_WARNING_SUPPRESS_NEXT_LINE(x)
-#define MSVC_CONST
 #endif
 
 // clang-format off

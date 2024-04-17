@@ -28,7 +28,6 @@ using std::error_code;
 using std::getline;
 using std::ifstream;
 using std::ios;
-using std::ios_base;
 using std::istream;
 using std::iter_swap;
 using std::mt19937;
@@ -37,21 +36,51 @@ using std::ostream;
 using std::streamoff;
 using std::string;
 using std::stringstream;
-using std::system_error;
+using std::runtime_error;
 using std::uniform_int_distribution;
 using std::vector;
 using namespace charls;
 
 namespace {
 
-constexpr ios::openmode mode_input = ios::in | ios::binary;
-constexpr ios::openmode mode_output = ios::out | ios::binary;
+constexpr ios::openmode mode_input{ios::in | ios::binary};
+
+ifstream open_input_stream(const char* filename)
+{
+    ifstream stream;
+    stream.exceptions(ios::eofbit | ios::failbit | ios::badbit);
+    stream.open(filename, mode_input);
+
+    return stream;
+}
+
+
+uint32_t log2_floor(const uint32_t n) noexcept
+{
+    ASSERT(n != 0 && "log2 is not defined for 0");
+    return 31 - countl_zero(n);
+}
+
+
+constexpr int result_to_exit_code(const bool result) noexcept
+{
+    return result ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+
+uint32_t max_value_to_bits_per_sample(const uint32_t max_value) noexcept
+{
+    ASSERT(max_value > 0);
+    return log2_floor(max_value) + 1;
+}
+
 
 template<typename Container>
 void read(istream& input, Container& destination_container)
 {
     input.read(reinterpret_cast<char*>(destination_container.data()), destination_container.size());
 }
+
 
 size_t get_stream_length(istream& stream, const size_t end_offset = 0)
 {
@@ -62,9 +91,37 @@ size_t get_stream_length(istream& stream, const size_t end_offset = 0)
     return length;
 }
 
+
+template<typename SizeType>
+void convert_planar_to_pixel(const size_t width, const size_t height, const void* source, void* destination) noexcept
+{
+    const size_t stride_in_pixels{width * 3};
+    const auto* plane0{static_cast<const SizeType*>(source)};
+    const auto* plane1{static_cast<const SizeType*>(source) + (width * height)};
+    const auto* plane2{static_cast<const SizeType*>(source) + (width * height * 2)};
+
+    auto* pixels{static_cast<SizeType*>(destination)};
+
+    for (size_t row{}; row != height; ++row)
+    {
+        for (size_t column{}, offset = 0; column != width; ++column, offset += 3)
+        {
+            pixels[offset + 0] = plane0[column];
+            pixels[offset + 1] = plane1[column];
+            pixels[offset + 2] = plane2[column];
+        }
+
+        plane0 += width;
+        plane1 += width;
+        plane2 += width;
+        pixels += stride_in_pixels;
+    }
+}
+
+
 void test_traits16_bit()
 {
-    const auto traits1 = default_traits<uint16_t, uint16_t>(4095, 0);
+    const auto traits1{default_traits<uint16_t, uint16_t>(4095, 0)};
     using lossless_traits = lossless_traits<uint16_t, 12>;
 
     assert::is_true(traits1.limit == lossless_traits::limit);
@@ -73,13 +130,13 @@ void test_traits16_bit()
     assert::is_true(traits1.bits_per_pixel == lossless_traits::bits_per_pixel);
     assert::is_true(traits1.quantized_bits_per_pixel == lossless_traits::quantized_bits_per_pixel);
 
-    for (int i = -4096; i < 4096; ++i)
+    for (int i{-4096}; i != 4096; ++i)
     {
         assert::is_true(traits1.modulo_range(i) == lossless_traits::modulo_range(i));
         assert::is_true(traits1.compute_error_value(i) == lossless_traits::compute_error_value(i));
     }
 
-    for (int i = -8095; i < 8095; ++i)
+    for (int i{-8095}; i != 8095; ++i)
     {
         assert::is_true(traits1.correct_prediction(i) == lossless_traits::correct_prediction(i));
         assert::is_true(traits1.is_near(i, 2) == lossless_traits::is_near(i, 2));
@@ -89,7 +146,7 @@ void test_traits16_bit()
 
 void test_traits8_bit()
 {
-    const auto traits1 = default_traits<uint8_t, uint8_t>(255, 0);
+    const auto traits1{default_traits<uint8_t, uint8_t>(255, 0)};
     using lossless_traits = lossless_traits<uint8_t, 8>;
 
     assert::is_true(traits1.limit == lossless_traits::limit);
@@ -98,13 +155,13 @@ void test_traits8_bit()
     assert::is_true(traits1.bits_per_pixel == lossless_traits::bits_per_pixel);
     assert::is_true(traits1.quantized_bits_per_pixel == lossless_traits::quantized_bits_per_pixel);
 
-    for (int i = -255; i < 255; ++i)
+    for (int i{-255}; i != 255; ++i)
     {
         assert::is_true(traits1.modulo_range(i) == lossless_traits::modulo_range(i));
         assert::is_true(traits1.compute_error_value(i) == lossless_traits::compute_error_value(i));
     }
 
-    for (int i = -255; i < 512; ++i)
+    for (int i{-255}; i != 512; ++i)
     {
         assert::is_true(traits1.correct_prediction(i) == lossless_traits::correct_prediction(i));
         assert::is_true(traits1.is_near(i, 2) == lossless_traits::is_near(i, 2));
@@ -114,9 +171,11 @@ void test_traits8_bit()
 
 vector<uint8_t> make_some_noise(const size_t length, const size_t bit_count, const int seed)
 {
-    const auto max_value = (1U << bit_count) - 1U;
+    const auto max_value{(1U << bit_count) - 1U};
     mt19937 generator(seed);
-    MSVC_CONST uniform_int_distribution<uint32_t> distribution(0, max_value);
+
+    MSVC_WARNING_SUPPRESS_NEXT_LINE(26496) // cannot be marked as const as operator() is not always defined const.
+    uniform_int_distribution<uint32_t> distribution(0, max_value);
 
     vector<uint8_t> buffer(length);
     for (auto& pixel_value : buffer)
@@ -130,14 +189,16 @@ vector<uint8_t> make_some_noise(const size_t length, const size_t bit_count, con
 
 vector<uint8_t> make_some_noise16_bit(const size_t length, const int bit_count, const int seed)
 {
-    const auto max_value = static_cast<uint16_t>((1U << bit_count) - 1U);
+    const auto max_value{static_cast<uint16_t>((1U << bit_count) - 1U)};
     mt19937 generator(seed);
-    MSVC_CONST uniform_int_distribution<uint16_t> distribution(0, max_value);
+
+    MSVC_WARNING_SUPPRESS_NEXT_LINE(26496) // cannot be marked as const as operator() is not always defined const.
+    uniform_int_distribution<uint16_t> distribution{0, max_value};
 
     vector<uint8_t> buffer(length * 2);
-    for (size_t i = 0; i < length; i = i + 2)
+    for (size_t i{}; i != length; i = i + 2)
     {
-        const uint16_t value = distribution(generator);
+        const uint16_t value{distribution(generator)};
 
         buffer[i] = static_cast<uint8_t>(value);
         buffer[i] = static_cast<uint8_t>(value >> 8);
@@ -149,23 +210,23 @@ vector<uint8_t> make_some_noise16_bit(const size_t length, const int bit_count, 
 
 void test_noise_image()
 {
-    const rect_size size2 = rect_size(512, 512);
+    const rect_size size2{512, 512};
 
-    for (size_t bit_depth = 8; bit_depth >= 2; --bit_depth)
+    for (size_t bit_depth{8}; bit_depth >= 2; --bit_depth)
     {
         stringstream label;
         label << "noise, bit depth: " << bit_depth;
 
-        const vector<uint8_t> noise_bytes = make_some_noise(size2.cx * size2.cy, bit_depth, 21344);
+        const vector<uint8_t> noise_bytes{make_some_noise(size2.cx * size2.cy, bit_depth, 21344)};
         test_round_trip(label.str().c_str(), noise_bytes, size2, static_cast<int>(bit_depth), 1);
     }
 
-    for (int bit_depth = 16; bit_depth > 8; --bit_depth)
+    for (int bit_depth{16}; bit_depth > 8; --bit_depth)
     {
         stringstream label;
         label << "noise, bit depth: " << bit_depth;
 
-        const vector<uint8_t> noise_bytes = make_some_noise16_bit(size2.cx * size2.cy, bit_depth, 21344);
+        const vector<uint8_t> noise_bytes{make_some_noise16_bit(size2.cx * size2.cy, bit_depth, 21344)};
         test_round_trip(label.str().c_str(), noise_bytes, size2, bit_depth, 1);
     }
 }
@@ -175,7 +236,7 @@ void test_noise_image_with_custom_reset()
 {
     const rect_size size{512, 512};
     constexpr int bit_depth{16};
-    const vector<uint8_t> noise_bytes = make_some_noise16_bit(size.cx * size.cy, bit_depth, 21344);
+    const vector<uint8_t> noise_bytes{make_some_noise16_bit(size.cx * size.cy, bit_depth, 21344)};
 
     JlsParameters params{};
     params.components = 1;
@@ -191,7 +252,7 @@ void test_noise_image_with_custom_reset()
 
 void test_fail_on_too_small_output_buffer()
 {
-    const auto input_buffer = make_some_noise(8 * 8, 8, 21344);
+    const auto input_buffer{make_some_noise(static_cast<size_t>(8) * 8, 8, 21344)};
 
     // Trigger a "destination buffer too small" when writing the header markers.
     try
@@ -200,7 +261,7 @@ void test_fail_on_too_small_output_buffer()
         jpegls_encoder encoder;
         encoder.destination(output_buffer);
         encoder.frame_info({8, 8, 8, 1});
-        static_cast<void>(encoder.encode(input_buffer));
+        std::ignore = encoder.encode(input_buffer);
         assert::is_true(false);
     }
     catch (const jpegls_error& e)
@@ -215,7 +276,7 @@ void test_fail_on_too_small_output_buffer()
         jpegls_encoder encoder;
         encoder.destination(output_buffer);
         encoder.frame_info({8, 8, 8, 1});
-        static_cast<void>(encoder.encode(input_buffer));
+        std::ignore = encoder.encode(input_buffer);
         assert::is_true(false);
     }
     catch (const jpegls_error& e)
@@ -238,7 +299,7 @@ void test_bgra()
 
 void test_bgr()
 {
-    vector<uint8_t> encoded_source = read_file("test/conformance/t8c2e3.jls");
+    const vector<uint8_t> encoded_source{read_file("test/conformance/t8c2e3.jls")};
 
     jpegls_decoder decoder;
     decoder.source(encoded_source);
@@ -271,8 +332,8 @@ void test_bgr()
 
 void test_too_small_output_buffer()
 {
-    const vector<uint8_t> encoded = read_file("test/lena8b.jls");
-    vector<uint8_t> destination(512 * 511);
+    const vector<uint8_t> encoded{read_file("test/tulips-gray-8bit-512-512-hp-encoder.jls")};
+    vector<uint8_t> destination(size_t{512} * 511);
 
     jpegls_decoder decoder;
     decoder.source(encoded).read_header();
@@ -364,24 +425,21 @@ void test_decode_bit_stream_with_unknown_jpeg_marker()
 
 void test_decode_rect()
 {
-    vector<uint8_t> encoded_source = read_file("test/lena8b.jls");
+    const vector<uint8_t> encoded_source{read_file("test/tulips-gray-8bit-512-512-hp-encoder.jls")};
 
-    jpegls_decoder decoder;
-    decoder.source(encoded_source);
-    decoder.read_header();
-
+    const jpegls_decoder decoder{encoded_source, true};
     vector<uint8_t> decoded_buffer(decoder.destination_size());
 
     // ReSharper disable CppDeprecatedEntity
     DISABLE_DEPRECATED_WARNING
 
-    JlsParameters params{};
+    constexpr JlsParameters params{};
 
-    error_code error = JpegLsDecode(decoded_buffer.data(), decoded_buffer.size(), encoded_source.data(),
-                                    encoded_source.size(), &params, nullptr);
+    error_code error{JpegLsDecode(decoded_buffer.data(), decoded_buffer.size(), encoded_source.data(),
+                                    encoded_source.size(), &params, nullptr)};
     assert::is_true(!error);
 
-    const JlsRect rect = {128, 128, 256, 1};
+    constexpr JlsRect rect{128, 128, 256, 1};
     vector<uint8_t> decoded_data(static_cast<size_t>(rect.Width) * rect.Height);
     decoded_data.push_back(0x1f);
 
@@ -403,10 +461,9 @@ void test_encode_from_stream(const char* filename, const size_t offset, const ui
                              const int32_t bits_per_sample, const int32_t component_count,
                              const interleave_mode interleave_mode, const size_t expected_length)
 {
-    ifstream source_file{filename, ios::in | ios::binary};
-    assert::is_true(source_file.good());
+    ifstream source_file{open_input_stream(filename)};
 
-    size_t length = get_stream_length(source_file, offset);
+    size_t length{get_stream_length(source_file, offset)};
     assert::is_true(length >= offset);
     length -= offset;
 
@@ -424,9 +481,12 @@ void test_encode_from_stream(const char* filename, const size_t offset, const ui
 }
 
 
-bool decode_to_pnm(istream& input, ostream& output)
+bool decode_to_pnm(const char* filename_input, const char* filename_output)
+try
 {
-    const size_t length = get_stream_length(input);
+    ifstream input{open_input_stream(filename_input)};
+
+    const size_t length{get_stream_length(input)};
     vector<uint8_t> encoded_source(length);
     read(input, encoded_source);
 
@@ -435,26 +495,54 @@ bool decode_to_pnm(istream& input, ostream& output)
     interleave_mode interleave_mode;
     std::tie(frame_info, interleave_mode) = jpegls_decoder::decode(encoded_source, decoded_destination);
 
-    if (frame_info.component_count > 1 && interleave_mode == charls::interleave_mode::none)
-        return false; // Unsupported at the moment.
+    if (frame_info.component_count != 1 && frame_info.component_count != 3)
+    {
+        cout << "Only JPEG-LS images with component count 1 or 3 are supported to decode to pnm\n";
+        return false;
+    }
+
+    // PPM format only supports by-pixel, convert if needed.
+    if (interleave_mode == charls::interleave_mode::none && frame_info.component_count == 3)
+    {
+        vector<uint8_t> pixels(decoded_destination.size());
+        if (frame_info.bits_per_sample > 8)
+        {
+            convert_planar_to_pixel<uint16_t>(frame_info.width, frame_info.height, decoded_destination.data(),
+                                              pixels.data());
+        }
+        else
+        {
+            convert_planar_to_pixel<uint8_t>(frame_info.width, frame_info.height, decoded_destination.data(), pixels.data());
+        }
+
+        swap(decoded_destination, pixels);
+    }
 
     // PNM format requires most significant byte first (big endian).
-    const int max_value = (1 << frame_info.bits_per_sample) - 1;
-    const int bytes_per_sample = max_value > 255 ? 2 : 1;
+    const int max_value{(1 << frame_info.bits_per_sample) - 1};
+    const int bytes_per_sample{max_value > 255 ? 2 : 1};
 
     if (bytes_per_sample == 2)
     {
-        for (auto i = decoded_destination.begin(); i != decoded_destination.end(); i += 2)
+        for (auto i{decoded_destination.begin()}; i != decoded_destination.end(); i += 2)
         {
             iter_swap(i, i + 1);
         }
     }
 
-    const int magic_number = frame_info.component_count == 3 ? 6 : 5;
+    const int magic_number{frame_info.component_count == 3 ? 6 : 5};
+
+    ofstream output{open_output_stream(filename_output)};
     output << 'P' << magic_number << "\n" << frame_info.width << ' ' << frame_info.height << "\n" << max_value << "\n";
-    output.write(reinterpret_cast<char*>(decoded_destination.data()), decoded_destination.size());
+    write(output, decoded_destination, decoded_destination.size());
+    output.close();
 
     return true;
+}
+catch (const runtime_error& error)
+{
+    cout << "Failed to decode " << filename_input << " to " << filename_output << ", reason: " << error.what() << '\n';
+    return false;
 }
 
 
@@ -462,7 +550,7 @@ vector<int> read_pnm_header(istream& pnm_file)
 {
     vector<int> read_values;
 
-    const auto first = static_cast<char>(pnm_file.get());
+    const auto first{static_cast<char>(pnm_file.get())};
 
     // All portable anymap format (PNM) start with the character P.
     if (first != 'P')
@@ -476,7 +564,7 @@ vector<int> read_pnm_header(istream& pnm_file)
 
         while (read_values.size() < 4)
         {
-            int value = -1;
+            int value{-1};
             line >> value;
             if (value <= 0)
                 break;
@@ -492,26 +580,30 @@ vector<int> read_pnm_header(istream& pnm_file)
 //          into the JPEG-LS format. The 2 binary formats P5 and P6 are supported:
 //          Portable GrayMap: P5 = binary, extension = .pgm, 0-2^16 (gray scale)
 //          Portable PixMap: P6 = binary, extension.ppm, range 0-2^16 (RGB)
-bool encode_pnm(istream& pnm_file, ostream& jls_file_stream)
+bool encode_pnm(const char* filename_input, const char* filename_output)
+try
 {
-    vector<int> read_values = read_pnm_header(pnm_file);
+    ifstream pnm_file(open_input_stream(filename_input));
+
+    const vector<int> read_values{read_pnm_header(pnm_file)};
     if (read_values.size() != 4)
         return false;
 
     const frame_info frame_info{static_cast<uint32_t>(read_values[1]), static_cast<uint32_t>(read_values[2]),
-                                log_2(read_values[3] + 1), read_values[0] == 6 ? 3 : 1};
+                                static_cast<int32_t>(max_value_to_bits_per_sample(read_values[3])),
+                                read_values[0] == 6 ? 3 : 1};
 
-    const int bytes_per_sample = ::bit_to_byte_count(frame_info.bits_per_sample);
+    const auto bytes_per_sample{static_cast<int32_t>(::bit_to_byte_count(frame_info.bits_per_sample))};
     vector<uint8_t> input_buffer(static_cast<size_t>(frame_info.width) * frame_info.height * bytes_per_sample *
                                  frame_info.component_count);
-    pnm_file.read(reinterpret_cast<char*>(input_buffer.data()), input_buffer.size());
+    read(pnm_file, input_buffer);
     if (!pnm_file.good())
         return false;
 
     // PNM format is stored with most significant byte first (big endian).
     if (bytes_per_sample == 2)
     {
-        for (auto i = input_buffer.begin(); i != input_buffer.end(); i += 2)
+        for (auto i{input_buffer.begin()}; i != input_buffer.end(); i += 2)
         {
             iter_swap(i, i + 1);
         }
@@ -525,21 +617,29 @@ bool encode_pnm(istream& pnm_file, ostream& jls_file_stream)
     encoder.destination(destination);
     const size_t bytes_encoded{encoder.encode(input_buffer)};
 
-    jls_file_stream.write(reinterpret_cast<const char*>(destination.data()), static_cast<std::streamsize>(bytes_encoded));
-    return jls_file_stream.good();
+    ofstream jls_file_stream(open_output_stream(filename_output));
+    write(jls_file_stream, destination, bytes_encoded);
+    jls_file_stream.close();
+
+    return true;
+}
+catch (const runtime_error& error)
+{
+    cout << "Failed to encode " << filename_input << " to " << filename_output << ", reason: " << error.what() << '\n';
+    return false;
 }
 
 
 bool compare_pnm(istream& pnm_file1, istream& pnm_file2)
 {
-    vector<int> header1 = read_pnm_header(pnm_file1);
+    const vector<int> header1{read_pnm_header(pnm_file1)};
     if (header1.size() != 4)
     {
         cout << "Cannot read header from input file 1\n";
         return false;
     }
 
-    vector<int> header2 = read_pnm_header(pnm_file2);
+    const vector<int> header2{read_pnm_header(pnm_file2)};
     if (header2.size() != 4)
     {
         cout << "Cannot read header from input file 2\n";
@@ -552,14 +652,14 @@ bool compare_pnm(istream& pnm_file1, istream& pnm_file2)
         return false;
     }
 
-    const size_t width = header1[1];
+    const auto width{static_cast<size_t>(header1[1])};
     if (width != static_cast<size_t>(header2[1]))
     {
         cout << "Width " << width << " is not equal with width " << header2[1] << "\n";
         return false;
     }
 
-    const size_t height = header1[2];
+    const auto height{static_cast<size_t>(header1[2])};
     if (height != static_cast<size_t>(header2[2]))
     {
         cout << "Height " << height << " is not equal with height " << header2[2] << "\n";
@@ -571,18 +671,18 @@ bool compare_pnm(istream& pnm_file1, istream& pnm_file2)
         cout << "max-value " << header1[3] << " is not equal with max-value " << header2[3] << "\n";
         return false;
     }
-    const auto bytes_per_sample = header1[3] > 255 ? 2 : 1;
+    const auto bytes_per_sample{header1[3] > 255 ? 2 : 1};
 
-    const size_t byte_count = width * height * bytes_per_sample;
+    const size_t byte_count{width * height * bytes_per_sample};
     vector<uint8_t> bytes1(byte_count);
     vector<uint8_t> bytes2(byte_count);
 
-    pnm_file1.read(reinterpret_cast<char*>(&bytes1[0]), byte_count);
-    pnm_file2.read(reinterpret_cast<char*>(&bytes2[0]), byte_count);
+    read(pnm_file1, bytes1);
+    read(pnm_file2, bytes2);
 
-    for (size_t x = 0; x < height; ++x)
+    for (size_t x{}; x != height; ++x)
     {
-        for (size_t y = 0; y < width; y += bytes_per_sample)
+        for (size_t y{}; y < width; y += bytes_per_sample)
         {
             if (bytes_per_sample == 1)
             {
@@ -610,39 +710,33 @@ bool compare_pnm(istream& pnm_file1, istream& pnm_file2)
 
 
 bool decode_raw(const char* filename_encoded, const char* filename_output)
+try
 {
-    try
-    {
-        const vector<uint8_t> encoded_source = read_file(filename_encoded);
-        vector<uint8_t> decoded_destination;
-        jpegls_decoder::decode(encoded_source, decoded_destination);
-        write_file(filename_output, decoded_destination.data(), decoded_destination.size());
-        return true;
-    }
-    catch (const system_error&)
-    {
-        return false;
-    }
+    const vector<uint8_t> encoded_source{read_file(filename_encoded)};
+    vector<uint8_t> decoded_destination;
+    jpegls_decoder::decode(encoded_source, decoded_destination);
+    write_file(filename_output, decoded_destination.data(), decoded_destination.size());
+    return true;
+}
+catch (const runtime_error& error)
+{
+    cout << "Failed to decode " << filename_encoded << " to " << filename_output << ", reason: " << error.what() << '\n';
+    return false;
 }
 
 
 void test_encode_from_stream()
 {
-    ////test_encode_from_stream("test/user_supplied/output.jls");
-
     test_encode_from_stream("test/0015.raw", 0, 1024, 1024, 8, 1, interleave_mode::none, 0x3D3ee);
-    ////test_encode_from_stream("test/MR2_UNC", 1728, 1024, 1024, 16, 1,0, 0x926e1);
     test_encode_from_stream("test/conformance/test8.ppm", 15, 256, 256, 8, 3, interleave_mode::sample, 99734);
     test_encode_from_stream("test/conformance/test8.ppm", 15, 256, 256, 8, 3, interleave_mode::line, 100615);
 }
 
 
-void unit_test()
+bool unit_test()
 {
     try
     {
-        //// TestBadImage();
-
         cout << "Test Conformance\n";
         test_encode_from_stream();
         test_conformance();
@@ -678,11 +772,19 @@ void unit_test()
 
         cout << "Test Legacy API\n";
         test_legacy_api();
+
+        return true;
     }
     catch (const unit_test_exception&)
     {
         cout << "==> Unit test failed <==\n";
     }
+    catch (const std::runtime_error& error)
+    {
+        cout << "==> Unit test failed due to external problem: " << error.what() << "\n";
+    }
+
+    return false;
 }
 
 } // namespace
@@ -697,13 +799,12 @@ int main(const int argc, const char* const argv[]) // NOLINT(bugprone-exception-
         return EXIT_FAILURE;
     }
 
-    for (int i = 1; i < argc; ++i)
+    for (int i{1}; i != argc; ++i)
     {
-        string str = argv[i];
+        const string str{argv[i]};
         if (str == "-unittest")
         {
-            unit_test();
-            continue;
+            return result_to_exit_code(unit_test());
         }
 
         if (str == "-decoderaw")
@@ -713,7 +814,7 @@ int main(const int argc, const char* const argv[]) // NOLINT(bugprone-exception-
                 cout << "Syntax: -decoderaw input-file output-file\n";
                 return EXIT_FAILURE;
             }
-            return decode_raw(argv[2], argv[3]) ? EXIT_SUCCESS : EXIT_FAILURE;
+            return result_to_exit_code(decode_raw(argv[2], argv[3]));
         }
 
         if (str == "-decodetopnm")
@@ -723,10 +824,8 @@ int main(const int argc, const char* const argv[]) // NOLINT(bugprone-exception-
                 cout << "Syntax: -decodetopnm input-file output-file\n";
                 return EXIT_FAILURE;
             }
-            ofstream pnm_file(argv[3], mode_output);
-            ifstream jls_file(argv[2], mode_input);
 
-            return decode_to_pnm(jls_file, pnm_file) ? EXIT_SUCCESS : EXIT_FAILURE;
+            return result_to_exit_code(decode_to_pnm(argv[2], argv[3]));
         }
 
         if (str == "-encodepnm")
@@ -736,10 +835,8 @@ int main(const int argc, const char* const argv[]) // NOLINT(bugprone-exception-
                 cout << "Syntax: -encodepnm input-file output-file\n";
                 return EXIT_FAILURE;
             }
-            ifstream pnm_file(argv[2], mode_input);
-            ofstream jls_file(argv[3], mode_output);
 
-            return encode_pnm(pnm_file, jls_file) ? EXIT_SUCCESS : EXIT_FAILURE;
+            return result_to_exit_code(encode_pnm(argv[2], argv[3]));
         }
 
         if (str == "-comparepnm")
@@ -752,7 +849,7 @@ int main(const int argc, const char* const argv[]) // NOLINT(bugprone-exception-
             ifstream pnm_file1(argv[2], mode_input);
             ifstream pnm_file2(argv[3], mode_input);
 
-            return compare_pnm(pnm_file1, pnm_file2) ? EXIT_SUCCESS : EXIT_FAILURE;
+            return result_to_exit_code(compare_pnm(pnm_file1, pnm_file2));
         }
 
         if (str == "-bitstreamdamage")
@@ -767,7 +864,7 @@ int main(const int argc, const char* const argv[]) // NOLINT(bugprone-exception-
 
             // Extract the optional loop count from the command line. Longer running tests make the measurements more
             // reliable.
-            auto index = str.find(':');
+            auto index{str.find(':')};
             if (index != string::npos)
             {
                 loop_count = stoi(str.substr(++index));
@@ -795,7 +892,7 @@ int main(const int argc, const char* const argv[]) // NOLINT(bugprone-exception-
 
             // Extract the optional loop count from the command line. Longer running tests make the measurements more
             // reliable.
-            auto index = str.find(':');
+            auto index{str.find(':')};
             if (index != string::npos)
             {
                 loop_count = stoi(str.substr(++index));
@@ -816,7 +913,7 @@ int main(const int argc, const char* const argv[]) // NOLINT(bugprone-exception-
 
             // Extract the optional loop count from the command line. Longer running tests make the measurements more
             // reliable.
-            auto index = str.find(':');
+            auto index{str.find(':')};
             if (index != string::npos)
             {
                 loop_count = stoi(str.substr(++index));
@@ -844,7 +941,7 @@ int main(const int argc, const char* const argv[]) // NOLINT(bugprone-exception-
         }
 
         cout << "Option not understood: " << argv[i] << "\n";
-        break;
+        return EXIT_FAILURE;
     }
 
     return EXIT_SUCCESS;

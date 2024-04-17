@@ -23,21 +23,19 @@
 
 namespace charls {
 
-class process_line
+struct process_line
 {
-public:
     virtual ~process_line() = default;
-
-    process_line(const process_line&) = delete;
-    process_line(process_line&&) = delete;
-    process_line& operator=(const process_line&) = delete;
-    process_line& operator=(process_line&&) = delete;
 
     virtual void new_line_decoded(const void* source, size_t pixel_count, size_t source_stride) = 0;
     virtual void new_line_requested(void* destination, size_t pixel_count, size_t destination_stride) = 0;
 
 protected:
     process_line() = default;
+    process_line(const process_line&) = default;
+    process_line(process_line&&) = default;
+    process_line& operator=(const process_line&) = default;
+    process_line& operator=(process_line&&) = default;
 };
 
 
@@ -93,7 +91,7 @@ public:
             auto* pixel_destination{static_cast<uint8_t*>(destination)};
             for (size_t i{}; i < pixel_count; ++i)
             {
-                pixel_destination[i] = pixel_source[i] & mask_;
+                pixel_destination[i] = static_cast<uint8_t>(pixel_source[i] & mask_);
             }
         }
         else
@@ -102,7 +100,7 @@ public:
             auto* pixel_destination{static_cast<uint16_t*>(destination)};
             for (size_t i{}; i < pixel_count; ++i)
             {
-                pixel_destination[i] = pixel_source[i] & mask_;
+                pixel_destination[i] = static_cast<uint16_t>(pixel_source[i] & mask_);
             }
         }
 
@@ -126,15 +124,14 @@ private:
 
 template<typename Transform, typename PixelType>
 void transform_line_to_quad(const PixelType* source, const size_t pixel_stride_in, quad<PixelType>* destination,
-                            const size_t pixel_stride,
-                            Transform& transform) noexcept
+                            const size_t pixel_stride, Transform& transform) noexcept
 {
     const auto pixel_count{std::min(pixel_stride, pixel_stride_in)};
 
     for (size_t i{}; i < pixel_count; ++i)
     {
         const quad<PixelType> pixel(transform(source[i], source[i + pixel_stride_in], source[i + 2 * pixel_stride_in]),
-                            source[i + 3 * pixel_stride_in]);
+                                    source[i + 3 * pixel_stride_in]);
         destination[i] = pixel;
     }
 }
@@ -142,8 +139,7 @@ void transform_line_to_quad(const PixelType* source, const size_t pixel_stride_i
 
 template<typename Transform, typename PixelType>
 void transform_quad_to_line(const quad<PixelType>* source, const size_t pixel_stride_in, PixelType* destination,
-                            const size_t pixel_stride,
-                            Transform& transform) noexcept
+                            const size_t pixel_stride, Transform& transform) noexcept
 {
     const auto pixel_count{std::min(pixel_stride, pixel_stride_in)};
 
@@ -181,7 +177,7 @@ void transform_quad_to_line(const quad<PixelType>* source, const size_t pixel_st
 
 
 template<typename T>
-void transform_rgb_to_bgr(T* buffer, int samples_per_pixel, const size_t pixel_count) noexcept
+void transform_rgb_to_bgr(T* buffer, size_t samples_per_pixel, const size_t pixel_count) noexcept
 {
     for (size_t i{}; i < pixel_count; ++i)
     {
@@ -259,8 +255,8 @@ void transform_triplet_to_line(const triplet<PixelType>* source, const size_t pi
 
     for (size_t i{}; i < pixel_count; ++i)
     {
-        const triplet<PixelType> color = type_buffer_in[i];
-        const triplet<PixelType> color_transformed = transform(color.v1, color.v2, color.v3);
+        const triplet<PixelType> color{type_buffer_in[i]};
+        const triplet<PixelType> color_transformed{transform(color.v1, color.v2, color.v3)};
 
         destination[i] = color_transformed.v1;
         destination[i + pixel_stride] = color_transformed.v2;
@@ -278,8 +274,8 @@ void transform_triplet_to_line(const triplet<PixelType>* source, const size_t pi
 
     for (size_t i{}; i < pixel_count; ++i)
     {
-        const triplet<PixelType> color = type_buffer_in[i];
-        const triplet<PixelType> color_transformed = transform(color.v1 & mask, color.v2 & mask, color.v3 & mask);
+        const triplet<PixelType> color{type_buffer_in[i]};
+        const triplet<PixelType> color_transformed{transform(color.v1 & mask, color.v2 & mask, color.v3 & mask)};
 
         destination[i] = color_transformed.v1;
         destination[i + pixel_stride] = color_transformed.v2;
@@ -313,7 +309,8 @@ public:
         raw_pixels_.data += stride_;
     }
 
-    void encode_transform(const void* source, void* destination, const size_t pixel_count, const size_t destination_stride) noexcept
+    void encode_transform(const void* source, void* destination, const size_t pixel_count,
+                          const size_t destination_stride) noexcept
     {
         if (parameters_.output_bgr)
         {

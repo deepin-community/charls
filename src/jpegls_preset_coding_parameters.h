@@ -3,8 +3,7 @@
 
 #pragma once
 
-#include <charls/public_types.h>
-
+#include "charls/public_types.h"
 #include "constants.h"
 #include "util.h"
 
@@ -14,18 +13,15 @@
 namespace charls {
 
 /// <summary>Clamping function as defined by ISO/IEC 14495-1, Figure C.3</summary>
-inline int32_t clamp(const int32_t i, const int32_t j, const int32_t maximum_sample_value) noexcept
+constexpr int32_t clamp(const int32_t i, const int32_t j, const int32_t maximum_sample_value) noexcept
 {
-    if (i > maximum_sample_value || i < j)
-        return j;
-
-    return i;
+    return i > maximum_sample_value || i < j ? j : i;
 }
 
 /// <summary>Default coding threshold values as defined by ISO/IEC 14495-1, C.2.4.1.1.1</summary>
 inline jpegls_pc_parameters compute_default(const int32_t maximum_sample_value, const int32_t near_lossless) noexcept
 {
-    ASSERT(maximum_sample_value <= UINT16_MAX);
+    ASSERT(maximum_sample_value <= std::numeric_limits<uint16_t>::max());
     ASSERT(near_lossless >= 0 && near_lossless <= compute_maximum_near_lossless(maximum_sample_value));
 
     if (maximum_sample_value >= 128)
@@ -53,21 +49,26 @@ inline jpegls_pc_parameters compute_default(const int32_t maximum_sample_value, 
 }
 
 
-inline bool is_default(const jpegls_pc_parameters& preset_coding_parameters) noexcept
+inline bool is_default(const jpegls_pc_parameters& preset_coding_parameters, const jpegls_pc_parameters& defaults) noexcept
 {
-    if (preset_coding_parameters.maximum_sample_value != 0)
+    if (preset_coding_parameters.maximum_sample_value == 0 && preset_coding_parameters.threshold1 == 0 &&
+        preset_coding_parameters.threshold2 == 0 && preset_coding_parameters.threshold3 == 0 &&
+        preset_coding_parameters.reset_value == 0)
+        return true;
+
+    if (preset_coding_parameters.maximum_sample_value != defaults.maximum_sample_value)
         return false;
 
-    if (preset_coding_parameters.threshold1 != 0)
+    if (preset_coding_parameters.threshold1 != defaults.threshold1)
         return false;
 
-    if (preset_coding_parameters.threshold2 != 0)
+    if (preset_coding_parameters.threshold2 != defaults.threshold2)
         return false;
 
-    if (preset_coding_parameters.threshold3 != 0)
+    if (preset_coding_parameters.threshold3 != defaults.threshold3)
         return false;
 
-    if (preset_coding_parameters.reset_value != 0)
+    if (preset_coding_parameters.reset_value != defaults.reset_value)
         return false;
 
     return true;
@@ -75,9 +76,9 @@ inline bool is_default(const jpegls_pc_parameters& preset_coding_parameters) noe
 
 
 inline bool is_valid(const jpegls_pc_parameters& pc_parameters, const int32_t maximum_component_value,
-                     const int32_t near_lossless) noexcept
+                     const int32_t near_lossless, jpegls_pc_parameters* validated_parameters = nullptr) noexcept
 {
-    ASSERT(maximum_component_value <= UINT16_MAX);
+    ASSERT(maximum_component_value >= 3 && maximum_component_value <= std::numeric_limits<uint16_t>::max());
 
     // ISO/IEC 14495-1, C.2.4.1.1, Table C.1 defines the valid JPEG-LS preset coding parameters values.
     if (pc_parameters.maximum_sample_value != 0 &&
@@ -104,6 +105,19 @@ inline bool is_valid(const jpegls_pc_parameters& pc_parameters, const int32_t ma
     if (pc_parameters.reset_value != 0 &&
         (pc_parameters.reset_value < 3 || pc_parameters.reset_value > std::max(255, maximum_sample_value)))
         return false;
+
+    if (validated_parameters)
+    {
+        validated_parameters->maximum_sample_value = maximum_sample_value;
+        validated_parameters->threshold1 =
+            pc_parameters.threshold1 != 0 ? pc_parameters.threshold1 : default_parameters.threshold1;
+        validated_parameters->threshold2 =
+            pc_parameters.threshold2 != 0 ? pc_parameters.threshold2 : default_parameters.threshold2;
+        validated_parameters->threshold3 =
+            pc_parameters.threshold3 != 0 ? pc_parameters.threshold3 : default_parameters.threshold3;
+        validated_parameters->reset_value =
+            pc_parameters.reset_value != 0 ? pc_parameters.reset_value : default_parameters.reset_value;
+    }
 
     return true;
 }
